@@ -8,10 +8,10 @@
 extern int errno;
 
 void readstdin() {
-   char c;
+   char c = getchar();
    while (c != EOF) {
+      putchar(c);
       c = getchar();
-      if (c != EOF) putchar(c);
    }
 }
 
@@ -35,16 +35,16 @@ int main(int argc, char* argv[]) {
       for (int i = argc-1; i > 0; i--){
          if (strcmp(argv[i], "-") == 0) {
             readstdin();
-            continue;
-         }
-         //printf("Open file: %s\n", argv[i]);
-         int fd = open(argv[i], O_RDONLY);
-         if (fd != -1) {
-            readfile(fd);
          } else {
-            fprintf(stderr, "dog: %s: %s\n", argv[i], strerror(errno));
+            //printf("Open file: %s\n", argv[i]);
+            int fd = open(argv[i], O_RDONLY);
+            if (fd != -1) {
+               readfile(fd);
+            } else {
+               fprintf(stderr, "dog: %s: %s\n", argv[i], strerror(errno));
+            }
+            close(fd);
          }
-         close(fd);
       }
    }
    return 0;
