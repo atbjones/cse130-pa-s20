@@ -1,14 +1,4 @@
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <fcntl.h>
-#include <unistd.h> // write
-#include <string.h> // memset
-#include <stdlib.h> // atoi
-#include <stdbool.h> // true, false
-#include <errno.h>
+#include "httpserver.h"
 
 #define BUFFER_SIZE 4096
 extern int errno;
@@ -40,34 +30,27 @@ void read_http_response(ssize_t client_sockd, struct httpObject* message) {
      */
 
     char buf[BUFFER_SIZE];
-    ssize_t size = BUFFER_SIZE;
+    // ssize_t size = BUFFER_SIZE;
 
-    size = read(client_sockd, buf, BUFFER_SIZE);
+    read(client_sockd, buf, BUFFER_SIZE);
 
     char* token;
     const char* whitespace = " \r\t\n";
     token = strtok(buf, whitespace);
-    strcpy(message->method, token);
+    strcpy(message->method, token); // Parse Method
 
     token = strtok(NULL, whitespace);
-    memcpy(message->filename, token+1, sizeof(&token));
-    // strcpy(message->filename, token);
+    memcpy(message->filename, token+1, sizeof(&token)); // Parse Filename 
 
     token = strtok(NULL, whitespace);
-    strcpy(message->httpversion, token);
+    strcpy(message->httpversion, token); // Parse HTTPversion
 
-    // while (token) {
-    //     printf("tok: %s\n", token);
-    //     token = strtok(NULL, whitespace);
-    // }
-    
     printf("method: %s\n", message->method);
     printf("file: %s\n", message->filename);
     printf("httpversion: %s\n", message->httpversion);
-    printf("content_len: %ld\n", message->content_length);
-    printf("status_code: %d\n", message->status_code);
-    printf("size: %ld\n", size);
-    // printf("content_length: %s\n", message->status_code);
+    // printf("content_len: %ld\n", message->content_length);
+    // printf("status_code: %d\n", message->status_code);
+    // printf("size: %ld\n", size);
     // printf("buffer: %s\n", message->buffer);
     // message->filename[1] = 'f';
 
@@ -80,24 +63,17 @@ void read_http_response(ssize_t client_sockd, struct httpObject* message) {
 void process_request(ssize_t client_sockd, struct httpObject* message) {
     printf("Processing Request\n");
 
-    // Check for valid filename
-    char c;
-    for (size_t i = 0; i < strlen(message->filename); i++) {
-        c = message->filename[i];
-        if((c < '0' && c != '-') ||
-        (c < 'A' && c > '9') ||
-        (c < 'a' && c > 'Z' && c != '_') ||
-        (c > 'z') ||
-        i > 27){
-            message->status_code = 400;
-            message->content_length = 0;
-            return;
-        }
+    if (!filenamecheck(message->filename)) {
+        printf("Invalid file name: %s\n", message->filename);
+        message->status_code = 400;
+        message->content_length = 0;
+        return;
     }
 
     if (strcmp(message->method, "HEAD") == 0){
         printf("Processing HEAD\n");
 
+        // Open file and extract file size
         struct stat finfo;
         int fd = open(message->filename, O_RDONLY);
         if (fd != -1) {
@@ -109,7 +85,11 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
 
             message->content_length = 0;
-            message->status_code = 403;
+            if (errno == EACCES){ // Errno is 13/EACCESS if file does not have r permission
+                message->status_code = 403;
+            } else if (errno == 2) { // Error code is 2 if file does not exist
+                message->status_code = 404;
+            }
         }
         close(fd);
     } else if (strcmp(message->method, "GET") == 0) {
@@ -126,24 +106,32 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
 
             message->content_length = 0;
-            message->status_code = 403;
+            if (errno == EACCES){
+                message->status_code = 403;
+            } else if (errno == 2){
+                message->status_code = 404;
+            }
         }
         close(fd);
     } else if (strcmp(message->method, "PUT") == 0) {
         printf("Processing PUT\n");
 
+        if (file_exists(message->filename)) {
+            message->status_code = 200;
+        } else {
+            message->status_code = 201;
+        }
+
         char buf[BUFFER_SIZE];
         ssize_t size = BUFFER_SIZE;
 
-        mode_t rw = 0666;
-        int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, rw);
+        mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
+        int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
         if (fd != -1) {
             size = read(client_sockd, buf, BUFFER_SIZE);
             write(fd, buf, size);
-            // printf("wr: %d\n", wr);
 
             message->content_length = 0;
-            message->status_code = 200;
         } else {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
 
@@ -158,8 +146,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         message->content_length = 0;
         message->status_code = 500;
     }
-
-    return;
 }
 
 /*
@@ -167,7 +153,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
 */
 void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
     printf("Constructing Response\n");
-
 
     char* status_message = "";
     switch(message->status_code) {
@@ -195,9 +180,8 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
     }
 
     char reply[BUFFER_SIZE] = "";
-    // printf("http:%s\n", message->httpversion);
     // printf("length:%ld\n", message->content_length);
-    // printf("code:%d\n", message->status_code);
+    printf("code:%d\n", message->status_code);
 
     if (strcmp(message->method, "HEAD") == 0){
         printf("Response HEAD\n");
