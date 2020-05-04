@@ -1,0 +1,23 @@
+#!/bin/sh
+
+echo "PUT tests"
+
+for file in cb@d cbig cbin cfoo c-_-
+do
+   echo "Processing $file"
+   curl -T $file http://localhost:8080/$file
+done
+
+echo "HEAD tests"
+for file in s_bad s_big s_f@il s_foo
+do
+   echo "Processing $file"
+   curl -I http://localhost:8080/$file
+done
+
+echo "GET tests"
+for file in s_bad s_big s_f@il s_foo
+do
+   echo "Processing $file"
+   curl http://localhost:8080/$file --output $file
+done
