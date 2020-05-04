@@ -1,6 +1,6 @@
 #include "httpserver.h"
 
-#define BUFFER_SIZE 4096
+// #define BUFFER_SIZE 4096
 extern int errno;
 
 struct httpObject {
@@ -22,39 +22,49 @@ struct httpObject {
     \param client_sockd - socket file descriptor
     \param message - object we want to 'fill in' as we read in the HTTP message
 */
-void read_http_response(ssize_t client_sockd, struct httpObject* message) {
+void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     printf("This function will take care of reading message\n");
 
     /*
      * Start constructing HTTP request based off data from socket
      */
 
-    char buf[BUFFER_SIZE];
-    // ssize_t size = BUFFER_SIZE;
+    ssize_t bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
 
-    read(client_sockd, buf, BUFFER_SIZE);
+    char buff[BUFFER_SIZE];
+    memcpy(buff, message->buffer, bytes);
+
+    // printf("Printing Buffer...\n");
+    // for (ssize_t i = 0; i < bytes; i++) {
+    //     printf("%c", buff[i]);
+    // }
 
     char* token;
-    const char* whitespace = " \r\t\n";
-    token = strtok(buf, whitespace);
+    const char* whitespace = " \r\t\n\v\f";
+    token = strtok(buff, whitespace);
     strcpy(message->method, token); // Parse Method
 
     token = strtok(NULL, whitespace);
-    memcpy(message->filename, token+1, sizeof(&token)); // Parse Filename 
+    printf("sizeof:%ld\n", strlen(token));
+    memcpy(message->filename, token+1, strlen(token)); // Parse Filename 
 
     token = strtok(NULL, whitespace);
     strcpy(message->httpversion, token); // Parse HTTPversion
 
+    // while (token != NULL) {
+    //     token = strtok(NULL, whitespace);
+    //     printf("token: %s-\n", token);
+    // }
+
     printf("method: %s\n", message->method);
     printf("file: %s\n", message->filename);
     printf("httpversion: %s\n", message->httpversion);
+
     // printf("content_len: %ld\n", message->content_length);
     // printf("status_code: %d\n", message->status_code);
     // printf("size: %ld\n", size);
     // printf("buffer: %s\n", message->buffer);
     // message->filename[1] = 'f';
-
-    return;
 }
 
 /*
@@ -63,6 +73,12 @@ void read_http_response(ssize_t client_sockd, struct httpObject* message) {
 void process_request(ssize_t client_sockd, struct httpObject* message) {
     printf("Processing Request\n");
 
+    if (strcmp(message->httpversion, "HTTP/1.1") != 0) {
+        message->status_code = 400;
+        message->content_length = 0;
+        return;
+    }
+
     if (!filenamecheck(message->filename)) {
         printf("Invalid file name: %s\n", message->filename);
         message->status_code = 400;
@@ -70,8 +86,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         return;
     }
 
-    if (strcmp(message->method, "HEAD") == 0){
-        printf("Processing HEAD\n");
+    if (strcmp(message->method, "HEAD") == 0 || strcmp(message->method, "GET") == 0) {
 
         // Open file and extract file size
         struct stat finfo;
@@ -92,53 +107,41 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
             }
         }
         close(fd);
-    } else if (strcmp(message->method, "GET") == 0) {
-        printf("Processing GET\n");
 
-        struct stat finfo;
-        int fd = open(message->filename, O_RDONLY);
-        if (fd != -1) {
-            fstat(fd, &finfo);
-
-            message->content_length = finfo.st_size;
-            message->status_code = 200;
-        } else {
-            fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
-
-            message->content_length = 0;
-            if (errno == EACCES){
-                message->status_code = 403;
-            } else if (errno == 2){
-                message->status_code = 404;
-            }
-        }
-        close(fd);
     } else if (strcmp(message->method, "PUT") == 0) {
-        printf("Processing PUT\n");
 
+        // Assign status code here based on if the file already exists
         if (file_exists(message->filename)) {
             message->status_code = 200;
         } else {
             message->status_code = 201;
         }
 
-        char buf[BUFFER_SIZE];
-        ssize_t size = BUFFER_SIZE;
+        char buff[BUFFER_SIZE];
+        memcpy(buff, message->buffer, BUFFER_SIZE);
+        ssize_t bytes = BUFFER_SIZE;
 
         mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
         int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
         if (fd != -1) {
-            size = read(client_sockd, buf, BUFFER_SIZE);
-            write(fd, buf, size);
 
-            message->content_length = 0;
+            // Write bytes that are in same message as header
+            // int body_pos = find_double_crlf(message->buffer);
+            // write(fd, message->buffer+body_pos, message->content_length);
+
+            // Write rest of bytes received
+            while (bytes == BUFFER_SIZE) {
+                bytes = recv(client_sockd, buff, BUFFER_SIZE, 0);
+                write(fd, buff, bytes);
+            }
         } else {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
 
-            message->content_length = 0;
             message->status_code = 403;
         }
         close(fd);
+
+        message->content_length = 0;
 
     } else {
         printf("Method not implemented");
@@ -180,46 +183,25 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
     }
 
     char reply[BUFFER_SIZE] = "";
-    // printf("length:%ld\n", message->content_length);
     printf("code:%d\n", message->status_code);
 
-    if (strcmp(message->method, "HEAD") == 0){
-        printf("Response HEAD\n");
-
-        snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
-        message->httpversion, message->status_code, status_message, message->content_length);
+    snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
+    message->httpversion, message->status_code, status_message, message->content_length);
         
-        send(client_sockd, reply, strlen(reply), 0);
+    send(client_sockd, reply, strlen(reply), 0);
 
-    } else if (strcmp(message->method, "GET") == 0) {
-        printf("Response GET\n");
+    if (message->status_code == 200 && strcmp(message->method, "GET") == 0) {
+        // Open specified file
+        int fd = open(message->filename, O_RDONLY);
 
-        snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
-        message->httpversion, message->status_code, status_message, message->content_length);
-
-        send(client_sockd, reply, strlen(reply), 0);
-
-        if (message->status_code == 200) {
-            // Open specified file
-            int fd = open(message->filename, O_RDONLY);
-
-            // Write file data
-            ssize_t size = BUFFER_SIZE;
-            while (size != 0) {
-                size = read(fd, message->buffer, BUFFER_SIZE);
-                write(client_sockd, message->buffer, size);
-            }
-
-            close(fd);
+        // Write file data
+        ssize_t size = BUFFER_SIZE;
+        while (size != 0) {
+            size = read(fd, message->buffer, BUFFER_SIZE);
+            send(client_sockd, message->buffer, size, 0);
         }
-        
-    } else if (strcmp(message->method, "PUT") == 0) {
-        printf("Response PUT\n");
 
-        snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
-        message->httpversion, message->status_code, status_message, message->content_length);
-        
-        send(client_sockd, reply, strlen(reply), 0);
+        close(fd);
     }
 
     // int fd = open("foo", O_RDONLY);
@@ -238,7 +220,7 @@ void usage(){
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2 || strcmp(argv[1], "1025") < 0) usage();
+    if (argc != 2 || strcmp(argv[1], "1024") <= 0) usage();
 
     /*
         Create sockaddr_in with server information
@@ -305,7 +287,7 @@ int main(int argc, char** argv) {
         /*
          * 2. Read HTTP Message
          */
-        read_http_response(client_sockd, &message);
+        read_http_request(client_sockd, &message);
 
         /*
          * 3. Process Request
