@@ -23,18 +23,20 @@ struct httpObject {
     \param message - object we want to 'fill in' as we read in the HTTP message
 */
 void read_http_request(ssize_t client_sockd, struct httpObject* message) {
-    printf("This function will take care of reading message\n");
+    printf("Reading Request\n");
 
     /*
      * Start constructing HTTP request based off data from socket
      */
 
     ssize_t bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
+    message->buffer[bytes] = 0;
 
-    char buff[BUFFER_SIZE];
+    char buff[bytes];
     memcpy(buff, message->buffer, bytes);
+    // buff[bytes] = '\0';
 
-    // printf("Printing Buffer...\n");
+    // printf("Printing Buffer...\n%s", buff);
     // for (ssize_t i = 0; i < bytes; i++) {
     //     printf("%c", buff[i]);
     // }
@@ -45,11 +47,22 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     strcpy(message->method, token); // Parse Method
 
     token = strtok(NULL, whitespace);
-    printf("sizeof:%ld\n", strlen(token));
+    // printf("sizeof:%ld\n", strlen(token));
     memcpy(message->filename, token+1, strlen(token)); // Parse Filename 
 
     token = strtok(NULL, whitespace);
     strcpy(message->httpversion, token); // Parse HTTPversion
+
+    // Find Content-Length if it exists
+    const char temp[20] = "Content-Length:";
+    char* ret;
+
+    ret = strstr(message->buffer, temp);
+    if (ret) {
+        token = strtok(ret, whitespace);
+        token = strtok(NULL, whitespace);
+        message->content_length = atoi(token);
+    }
 
     // while (token != NULL) {
     //     token = strtok(NULL, whitespace);
@@ -59,12 +72,7 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     printf("method: %s\n", message->method);
     printf("file: %s\n", message->filename);
     printf("httpversion: %s\n", message->httpversion);
-
-    // printf("content_len: %ld\n", message->content_length);
-    // printf("status_code: %d\n", message->status_code);
-    // printf("size: %ld\n", size);
-    // printf("buffer: %s\n", message->buffer);
-    // message->filename[1] = 'f';
+    printf("content_len: %ld\n", message->content_length);
 }
 
 /*
@@ -86,53 +94,66 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         return;
     }
 
+    // Open file and extract file stats
+    struct stat info;
+    int exists = stat(message->filename, &info);
+
     if (strcmp(message->method, "HEAD") == 0 || strcmp(message->method, "GET") == 0) {
 
-        // Open file and extract file size
-        struct stat finfo;
-        int fd = open(message->filename, O_RDONLY);
-        if (fd != -1) {
-            fstat(fd, &finfo);
+        // printf("Permission:%3o\n", info.st_mode);
 
-            message->content_length = finfo.st_size;
-            message->status_code = 200;
-        } else {
-            fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
-
+        if (exists == -1){
+            printf("ERROR: File does not exist\n");
+            message->status_code = 404;
             message->content_length = 0;
-            if (errno == EACCES){ // Errno is 13/EACCESS if file does not have r permission
-                message->status_code = 403;
-            } else if (errno == 2) { // Error code is 2 if file does not exist
-                message->status_code = 404;
-            }
+
+        } else if ((info.st_mode & S_IRUSR) != S_IRUSR){
+            printf("ERROR: Does not have read Permission\n");
+            message->status_code = 403;
+            message->content_length = 0;
+
+        } else {
+            message->status_code = 200;
+            message->content_length = info.st_size;
         }
-        close(fd);
 
     } else if (strcmp(message->method, "PUT") == 0) {
 
         // Assign status code here based on if the file already exists
-        if (file_exists(message->filename)) {
-            message->status_code = 200;
-        } else {
+        if (exists == -1) {
             message->status_code = 201;
+        } else if ((info.st_mode & S_IWUSR) != S_IWUSR) {
+            printf("ERROR: Does not have write permission\n");
+            message->status_code = 403;
+            message->content_length = 0;
+            return;
+        } else {
+            message->status_code = 200;
         }
 
-        char buff[BUFFER_SIZE];
-        memcpy(buff, message->buffer, BUFFER_SIZE);
-        ssize_t bytes = BUFFER_SIZE;
+        char double_crlf[5] = "\r\n\r\n";
+        char* body;
+        ssize_t bytes = BUFFER_SIZE, total_bytes = 0;
 
         mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
         int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
         if (fd != -1) {
 
             // Write bytes that are in same message as header
-            // int body_pos = find_double_crlf(message->buffer);
-            // write(fd, message->buffer+body_pos, message->content_length);
+            body = strstr(message->buffer, double_crlf);
+            if (body) {
+                total_bytes += write(fd, body+4, message->content_length);
+            }
+            printf("body:%s--\n", body);
 
-            // Write rest of bytes received
-            while (bytes == BUFFER_SIZE) {
-                bytes = recv(client_sockd, buff, BUFFER_SIZE, 0);
-                write(fd, buff, bytes);
+            printf("here:%ld\n", total_bytes);
+
+            // Write rest of bytes received //total_bytes < message->content_length
+            while (total_bytes < message->content_length) {
+                bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
+                total_bytes += bytes;
+                write(fd, message->buffer, bytes);
+                // printf("inwhile:%ld\n", total_bytes);
             }
         } else {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
@@ -203,13 +224,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
 
         close(fd);
     }
-
-    // int fd = open("foo", O_RDONLY);
-    // if (fd != -1) {
-    //     readfile(fd);
-    // } else {
-    //     fprintf(stderr, "server error: %s: %s\n", "foo", strerror(errno));
-    // }
 
     return;
 }

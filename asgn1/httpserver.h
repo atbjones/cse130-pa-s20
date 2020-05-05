@@ -35,6 +35,7 @@ bool file_exists(char* filename) {
     if (fd != -1){
         return true;
     }
+    close(fd);
     return false;
 }
 
