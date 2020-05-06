@@ -1,6 +1,5 @@
 #include "httpserver.h"
 
-// #define BUFFER_SIZE 4096
 extern int errno;
 
 struct httpObject {
@@ -34,12 +33,8 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
 
     char buff[bytes];
     memcpy(buff, message->buffer, bytes);
-    // buff[bytes] = '\0';
 
     // printf("Printing Buffer...\n%s", buff);
-    // for (ssize_t i = 0; i < bytes; i++) {
-    //     printf("%c", buff[i]);
-    // }
 
     char* token;
     const char* whitespace = " \r\t\n\v\f";
@@ -47,7 +42,6 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     strcpy(message->method, token); // Parse Method
 
     token = strtok(NULL, whitespace);
-    // printf("sizeof:%ld\n", strlen(token));
     memcpy(message->filename, token+1, strlen(token)); // Parse Filename 
 
     token = strtok(NULL, whitespace);
@@ -56,7 +50,6 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     // Find Content-Length if it exists
     const char temp[20] = "Content-Length:";
     char* ret;
-
     ret = strstr(message->buffer, temp);
     if (ret) {
         token = strtok(ret, whitespace);
@@ -64,15 +57,10 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
         message->content_length = atoi(token);
     }
 
-    // while (token != NULL) {
-    //     token = strtok(NULL, whitespace);
-    //     printf("token: %s-\n", token);
-    // }
-
-    printf("method: %s\n", message->method);
-    printf("file: %s\n", message->filename);
-    printf("httpversion: %s\n", message->httpversion);
-    printf("content_len: %ld\n", message->content_length);
+    // printf("method: %s\n", message->method);
+    // printf("file: %s\n", message->filename);
+    // printf("httpversion: %s\n", message->httpversion);
+    // printf("content_len: %ld\n", message->content_length);
 }
 
 /*
@@ -82,6 +70,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
     printf("Processing Request\n");
 
     if (strcmp(message->httpversion, "HTTP/1.1") != 0) {
+        printf("Invalid HTTP version\n");
         message->status_code = 400;
         message->content_length = 0;
         return;
@@ -100,8 +89,8 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
 
     if (strcmp(message->method, "HEAD") == 0 || strcmp(message->method, "GET") == 0) {
 
-        // printf("Permission:%3o\n", info.st_mode);
-
+        // Check if file exists and permissions
+        // and set status_code, content_len accordingly
         if (exists == -1){
             printf("ERROR: File does not exist\n");
             message->status_code = 404;
@@ -119,9 +108,11 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
 
     } else if (strcmp(message->method, "PUT") == 0) {
 
-        // Assign status code here based on if the file already exists
+        // Check if file exists and permissions
+        // and set status_code, content_len accordingly
         if (exists == -1) {
             message->status_code = 201;
+            printf("file error: %s: does not exist\n");
         } else if ((info.st_mode & S_IWUSR) != S_IWUSR) {
             printf("ERROR: Does not have write permission\n");
             message->status_code = 403;
@@ -134,8 +125,10 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         char double_crlf[5] = "\r\n\r\n";
         char* body;
         ssize_t bytes = BUFFER_SIZE, total_bytes = 0;
-
         mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
+
+        // I don't think the fd check here is necessary but I don't have tests left
+        // and I don't want to fuck with it right now.
         int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
         if (fd != -1) {
 
@@ -144,16 +137,12 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
             if (body) {
                 total_bytes += write(fd, body+4, message->content_length);
             }
-            printf("body:%s--\n", body);
 
-            printf("here:%ld\n", total_bytes);
-
-            // Write rest of bytes received //total_bytes < message->content_length
+            // Write rest of bytes received
             while (total_bytes < message->content_length) {
                 bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
                 total_bytes += bytes;
                 write(fd, message->buffer, bytes);
-                // printf("inwhile:%ld\n", total_bytes);
             }
         } else {
             fprintf(stderr, "file error: %s: %s\n", message->filename, strerror(errno));
@@ -167,8 +156,8 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
     } else {
         printf("Method not implemented");
         
+        message->status_code = 400;
         message->content_length = 0;
-        message->status_code = 500;
     }
 }
 
@@ -203,14 +192,14 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
             break;
     }
 
+    // Create HTTP response
     char reply[BUFFER_SIZE] = "";
-    printf("code:%d\n", message->status_code);
-
     snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
     message->httpversion, message->status_code, status_message, message->content_length);
         
     send(client_sockd, reply, strlen(reply), 0);
 
+    // Send file data if valid GET request
     if (message->status_code == 200 && strcmp(message->method, "GET") == 0) {
         // Open specified file
         int fd = open(message->filename, O_RDONLY);
@@ -226,11 +215,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
     }
 
     return;
-}
-
-void usage(){
-    printf("usage: ./httpserver <port>\n");
-    exit(EXIT_FAILURE);
 }
 
 int main(int argc, char** argv) {
