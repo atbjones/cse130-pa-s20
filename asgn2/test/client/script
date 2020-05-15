@@ -1,0 +1,27 @@
+#!/bin/sh
+
+clear
+
+echo "PUT tests"
+
+for file in cb@d csmall cbig c-_-
+do
+   echo "PUT $file"
+   curl -T $file http://localhost:8080/$file
+   diff ../$file $file >d_$file
+done
+
+echo "HEAD tests"
+for file in s_bad s_big s_f@il s_small s_dne
+do
+   echo "HEAD $file"
+   curl -I http://localhost:8080/$file
+done
+
+echo "GET tests"
+for file in s_bad s_big s_f@il s_small s_dne
+do
+   echo "GET $file"
+   curl http://localhost:8080/$file --output $file
+   diff ../$file $file >d_$file
+done
