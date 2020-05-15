@@ -1,7 +1,5 @@
 #include "httpserver.h"
 
-// extern int errno;
-
 /*
     \brief 1. Want to read in the HTTP message/ data coming in from socket
     \param client_sockd - socket file descriptor
@@ -34,9 +32,9 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     strcpy(message->httpversion, token); // Parse HTTPversion
 
     // Find Content-Length if it exists
-    const char temp[20] = "Content-Length:";
+    const char contentlen[20] = "Content-Length:";
     char* ret;
-    ret = strstr((char*)message->buffer, temp);
+    ret = strstr((char*)message->buffer, contentlen);
     if (ret) {
         token = strtok(ret, whitespace);
         token = strtok(NULL, whitespace);
@@ -52,7 +50,7 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
 /*
     \brief 2. Want to process the message we just recieved
 */
-void process_request(ssize_t client_sockd, struct httpObject* message) {
+void process_request(ssize_t client_sockd, struct httpObject* message, struct healthObject* health) {
     printf("----Processing Request----\n");
 
     if (strcmp(message->httpversion, "HTTP/1.1") != 0) {
@@ -71,12 +69,20 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         return;
     }
 
+    if (strcmp(message->filename, "healthcheck") == 0) {
+        message->status_code = 200;
+        // Data to be returned is a string ("%d\n%d", errors, entries)
+        message->content_length = nDigits(health->errors) + 1 + nDigits(health->entries);
+        init_log_entry(message);
+        return;
+    }
+
     // Open file and extract file stats
     struct stat info;
     int stat_ret = stat(message->filename, &info);
 
+    // GET will send file data in construct_http_response()
     if (strcmp(message->method, "HEAD") == 0 || strcmp(message->method, "GET") == 0) {
-
         // Check file exists and permissions
         // and set status_code, content_len accordingly
         if (stat_ret == -1){
@@ -97,11 +103,11 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
 
     } else if (strcmp(message->method, "PUT") == 0) {
 
-        // Check if file exists and permissions
+        // Check if file exists and permissions correct
         // and set status_code, content_len accordingly
         if (stat_ret == -1) {
             message->status_code = 201;
-            printf("file error: %s: Does not exist\n", message->filename);
+            printf("creating file: %s\n", message->filename);
         } else if ((info.st_mode & S_IWUSR) != S_IWUSR) {
             printf("file error: %s: Does not have write permission\n", message->filename);
             message->status_code = 403;
@@ -116,11 +122,10 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
         char* body;
         ssize_t bytes = BUFFER_SIZE, total_bytes = 0;
         mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
+        
+        // Create log buffer, used to format and write lines of log data
+        char log_buff[BUFFER_SIZE] = "";
 
-        // char* log_buff = init_log_entry(message);
-        char log_buff[BUFFER_SIZE] = ""; // Create log buffer
-
-        // Open specified file
         int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
 
         // Write bytes that are in same message as header
@@ -134,19 +139,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
             bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
             write(fd, message->buffer, bytes);
 
-            // Format received data into log buffer and write to file
-            for (int i = 0; i < bytes; i += 20){ // Outer loop writes a line of x-fered data
-                snprintf(log_buff + strlen(log_buff), BUFFER_SIZE-1, "%08d ", (int)total_bytes + i);
-                for (int j = i; j < i + 20; j++) { // Inner loop writes data one byte at a time
-                    if (j == bytes-1) {
-                        break;
-                    }
-                    snprintf(log_buff + strlen(log_buff), BUFFER_SIZE-1, "%02x ", message->buffer[j]);
-                }
-                snprintf(log_buff + strlen(log_buff), BUFFER_SIZE, "\n");
-                write(message->log_fd, log_buff, strlen(log_buff));
-                memset(log_buff, 0, strlen(log_buff));
-            }
+            write_log_data(log_buff, message, bytes, total_bytes);
             // printf("log_buff:%s%ld---\n", log_buff, strlen(log_buff));
             
             total_bytes += bytes;
@@ -164,7 +157,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message) {
 /*
     \brief 3. Construct some response based on the HTTP request you recieved
 */
-void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
+int construct_http_response(ssize_t client_sockd, struct httpObject* message, struct healthObject* health) {
     printf("----Constructing Response----\n");
 
     char* status_message = "";
@@ -194,29 +187,37 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message) {
 
     // Create HTTP response
     char reply[BUFFER_SIZE] = "";
-    snprintf(reply, BUFFER_SIZE-1, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
-    message->httpversion, message->status_code, status_message, message->content_length);
-        
+
+    snprintf(reply, BUFFER_SIZE, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
+        message->httpversion, message->status_code, status_message, message->content_length);
     send(client_sockd, reply, strlen(reply), 0);
+    memset(reply, 0, strlen(reply));
 
-    // Send file data if valid GET request
-    if (message->status_code == 200 && strcmp(message->method, "GET") == 0) {
-        // Open specified file
+    if (strcmp(message->filename, "healthcheck") == 0) {
+        snprintf(reply, message->content_length + 1, "%d\n%d", health->errors, health->entries);
+        send(client_sockd, reply, strlen(reply), 0);
+        // printf("strlen:%ld\n", strlen(reply));
+        // printf("reply:%s\n", reply);
+    }   
+
+    // Send file data if valid GET request and not a healthcheck
+    if (message->status_code == 200 
+      && strcmp(message->method, "GET") == 0 
+      && strcmp(message->filename, "healthcheck") != 0) {
+
         int fd = open(message->filename, O_RDONLY);
-
         // Write file data
         ssize_t size = BUFFER_SIZE;
         while (size != 0) {
             size = read(fd, message->buffer, BUFFER_SIZE);
             send(client_sockd, message->buffer, size, 0);
         }
-
         close(fd);
     }
 
     end_log_entry(message);
 
-    return;
+    return message->status_code;
 }
 
 int main(int argc, char** argv) {
@@ -225,9 +226,9 @@ int main(int argc, char** argv) {
         usage();
     }
 
+    // Parse options 
     int opt, numthreads = 4, port;
     char* logfile = NULL;
-
     while ((opt = getopt(argc, argv, "N:l:")) != -1) {
         switch (opt) {
         case 'N':
@@ -302,6 +303,9 @@ int main(int argc, char** argv) {
     socklen_t client_addrlen;
 
     struct httpObject message;
+
+    struct healthObject health = {0,0};
+    int status_code;
     
     mode_t log_permissions = 0666;
     message.log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, log_permissions);
@@ -352,28 +356,22 @@ int main(int argc, char** argv) {
         /*
          * 3. Process Request
          */
-        process_request(client_sockd, &message);
+        process_request(client_sockd, &message, &health);
 
         /*
          * 4. Construct Response
          */
-        construct_http_response(client_sockd, &message);
+        status_code = construct_http_response(client_sockd, &message, &health);
 
         /*
          * 5. Send Response
          */
         printf("Response Sent\n\n");
 
-    //     /*
-    //      * Sample Example which wrote to STDOUT once.
-    //      *
-    //     uint8_t buff[BUFFER_SIZE + 1];
-    //     ssize_t bytes = recv(client_sockd, buff, BUFFER_SIZE, 0);
-    //     buff[bytes] = 0; // null terminate
-    //     printf("[+] received %ld bytes from client\n[+] response: \n", bytes);
-    //     write(STDOUT_FILENO, buff, bytes);
-    //     */
+        health.entries++;
+        if (status_code > 201) {
+            health.errors++;
+        }
     }
-
     return EXIT_SUCCESS;
 }

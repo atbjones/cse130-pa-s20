@@ -491,7 +491,7 @@ PUT /cbig length 9617
 PUT /c-_- length 8
 00000000 2d 5f 2d 5f 2d 5f 2d 
 ========
-FAIL: HEAD /s_bad HTTP/1.1 --- response 403
+FAIL: HEAD /s_bad HTTP/1.1 --- response 404
 ========
 HEAD /s_big length 3990
 ========
@@ -501,7 +501,7 @@ HEAD /s_small length 28
 ========
 FAIL: HEAD /s_dne HTTP/1.1 --- response 404
 ========
-FAIL: GET /s_bad HTTP/1.1 --- response 403
+FAIL: GET /s_bad HTTP/1.1 --- response 404
 ========
 GET /s_big length 3990
 ========
@@ -510,4 +510,6 @@ FAIL: GET /s_f@il HTTP/1.1 --- response 400
 GET /s_small length 28
 ========
 FAIL: GET /s_dne HTTP/1.1 --- response 404
+========
+GET /healthcheck length 4
 ========
