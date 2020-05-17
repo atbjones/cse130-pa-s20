@@ -25,12 +25,20 @@ struct httpObject {
     ssize_t content_length; // example: 13
     int status_code;
     uint8_t buffer[BUFFER_SIZE];
+    // bool logging;
     int log_fd;
 };
 
 struct healthObject {
     int entries;
     int errors;
+};
+
+struct fooObject {
+    // struct httpObject message;
+    // struct healthObject health;
+    int client_sockd;
+    char* logfile;
 };
 
 void usage(){
@@ -65,43 +73,46 @@ int nDigits(long long n)
     return count; 
 } 
 
-// Function to write first line of a log entry
-int init_log_entry (struct httpObject* message) {
-    char log_buff[BUFFER_SIZE] = ""; // Create log buffer
-    // Write first line to log, then empty buffer
+void write_log (struct httpObject* message) {
+    char buff[BUFFER_SIZE] = "";
+
     if (message->status_code <= 201) {
-        snprintf(log_buff, BUFFER_SIZE-1, "%s /%s length %ld\n", 
+        // Write first line
+        snprintf(buff, BUFFER_SIZE, "%s /%s length %ld\n", 
             message->method, message->filename, message->content_length);
-        write(message->log_fd, log_buff, strlen(log_buff));
-    } else {
-        snprintf(log_buff, BUFFER_SIZE-1, "FAIL: %s /%s %s --- response %d\n", 
-            message->method, message->filename, message->httpversion, message->status_code);
-        write(message->log_fd, log_buff, strlen(log_buff));
-    }
-    memset(log_buff, 0, strlen(log_buff));
-    return 0;
-}
+        write(message->log_fd, buff, strlen(buff));
+        memset(buff, 0, strlen(buff));
 
-// Function to format and write data 
-int write_log_data (char log_buff[], struct httpObject* message, ssize_t bytes, ssize_t total_bytes ) {
-    for (int i = 0; i < bytes; i += 20){ // Outer loop writes a line of x-fered data
-        snprintf(log_buff + strlen(log_buff), BUFFER_SIZE-1, "%08d ", (int)total_bytes + i);
-        for (int j = i; j < i + 20; j++) { // Inner loop writes data one byte at a time
-            if (j == bytes-1) {
-                break;
+        // Write transferred file data
+        if (strcmp(message->method, "HEAD") != 0){
+            int fd = open(message->filename, O_RDONLY);
+            ssize_t nbytes = BUFFER_SIZE, total_bytes = 0;
+            while (nbytes != 0) {
+                nbytes = read(fd, message->buffer, BUFFER_SIZE);
+                // send(client_sockd, message->buffer, size, 0);
+                for (int i = 0; i < nbytes; i += 20){ // Outer loop writes a line of x-fered data
+                    snprintf(buff + strlen(buff), BUFFER_SIZE, "%08d ", (int)total_bytes + i);
+                    for (int j = i; j < i + 20; j++) { // Inner loop writes data one byte at a time
+                        if (j == nbytes-1) {
+                            break;
+                        }
+                        snprintf(buff + strlen(buff), BUFFER_SIZE, "%02x ", message->buffer[j]);
+                    }
+                    snprintf(buff + strlen(buff), BUFFER_SIZE, "\n");
+                    write(message->log_fd, buff, strlen(buff));
+                    memset(buff, 0, strlen(buff));
+                }
+                total_bytes += nbytes;
             }
-            snprintf(log_buff + strlen(log_buff), BUFFER_SIZE-1, "%02x ", message->buffer[j]);
+            close(fd);
         }
-        snprintf(log_buff + strlen(log_buff), BUFFER_SIZE, "\n");
-        write(message->log_fd, log_buff, strlen(log_buff));
-        memset(log_buff, 0, strlen(log_buff));
+    } else {
+        snprintf(buff, BUFFER_SIZE-1, "FAIL: %s /%s %s --- response %d\n", 
+            message->method, message->filename, message->httpversion, message->status_code);
+        write(message->log_fd, buff, strlen(buff));
     }
-    return 0;
-}
 
-int end_log_entry (struct httpObject* message){
     write(message->log_fd, "========\n", 9);
-    return 0;
 }
 
 #endif

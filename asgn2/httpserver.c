@@ -1,5 +1,7 @@
 #include "httpserver.h"
 
+// void handle_request (struct fooObject* foo);
+
 /*
     \brief 1. Want to read in the HTTP message/ data coming in from socket
     \param client_sockd - socket file descriptor
@@ -57,7 +59,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         printf("Invalid HTTP version\n");
         message->status_code = 400;
         message->content_length = 0;
-        init_log_entry(message);
         return;
     }
 
@@ -65,7 +66,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         printf("Invalid file name: %s\n", message->filename);
         message->status_code = 400;
         message->content_length = 0;
-        init_log_entry(message);
         return;
     }
 
@@ -73,7 +73,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         message->status_code = 200;
         // Data to be returned is a string ("%d\n%d", errors, entries)
         message->content_length = nDigits(health->errors) + 1 + nDigits(health->entries);
-        init_log_entry(message);
         return;
     }
 
@@ -99,7 +98,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
             message->status_code = 200;
             message->content_length = info.st_size;
         }
-        init_log_entry(message);
 
     } else if (strcmp(message->method, "PUT") == 0) {
 
@@ -116,16 +114,12 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         } else {
             message->status_code = 200;
         }
-        init_log_entry(message);
 
         char double_crlf[5] = "\r\n\r\n";
         char* body;
         ssize_t bytes = BUFFER_SIZE, total_bytes = 0;
         mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
         
-        // Create log buffer, used to format and write lines of log data
-        char log_buff[BUFFER_SIZE] = "";
-
         int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
 
         // Write bytes that are in same message as header
@@ -138,10 +132,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         while (total_bytes < message->content_length) {
             bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
             write(fd, message->buffer, bytes);
-
-            write_log_data(log_buff, message, bytes, total_bytes);
-            // printf("log_buff:%s%ld---\n", log_buff, strlen(log_buff));
-            
             total_bytes += bytes;
         }
         close(fd);
@@ -157,7 +147,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
 /*
     \brief 3. Construct some response based on the HTTP request you recieved
 */
-int construct_http_response(ssize_t client_sockd, struct httpObject* message, struct healthObject* health) {
+void construct_http_response(ssize_t client_sockd, struct httpObject* message, struct healthObject* health) {
     printf("----Constructing Response----\n");
 
     char* status_message = "";
@@ -185,7 +175,6 @@ int construct_http_response(ssize_t client_sockd, struct httpObject* message, st
             break;
     }
 
-    // Create HTTP response
     char reply[BUFFER_SIZE] = "";
 
     snprintf(reply, BUFFER_SIZE, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
@@ -215,9 +204,7 @@ int construct_http_response(ssize_t client_sockd, struct httpObject* message, st
         close(fd);
     }
 
-    end_log_entry(message);
-
-    return message->status_code;
+    write_log(message);
 }
 
 int main(int argc, char** argv) {
@@ -249,7 +236,7 @@ int main(int argc, char** argv) {
     }
 
     port = atoi(argv[optind]);
-    printf("numthread:%d\nlogfile:%s\n", numthreads, logfile);
+    // printf("numthread:%d\nlogfile:%s\n", numthreads, logfile);
 
     /*
         Create sockaddr_in with server information
@@ -303,41 +290,17 @@ int main(int argc, char** argv) {
     socklen_t client_addrlen;
 
     struct httpObject message;
-
     struct healthObject health = {0,0};
-    int status_code;
+    // struct fooObject foo;
     
-    mode_t log_permissions = 0666;
-    message.log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, log_permissions);
+    if( logfile ){
+        int log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, (mode_t)0666);
+        message.log_fd = log_fd;
+    }
+    // foo.logfile = logfile;
 
-    // Thread testing ===============================
-    // void *print_message_function( void *ptr ) {
-    //     char *msg;
-    //     msg = (char *) ptr;
-    //     printf("%s \n", msg);
-    // }
-
-    // void* count(void* data) {
-    //     int i;
-    //     int foo = *((int*)data);
-    //     printf("data: %d\n", data);
-
-    //     for(foo = 0; foo < 100; foo++){
-    //         printf("in count:%d\n", foo);
-    //     }
-
-    //     pthread_exit(NULL);
-    // }
-    // char* msg1 = "Message 1:";
-    // char* msg2 = "Message 2:";
-    // int t1 = 1, t2 = 2;
-    // int thr_1, thr_2;
-    // pthread_t thread1, thread2;
-    // printf("before count\n");
-    // thr_1 = pthread_create( &thread1, NULL, count, (void*)&t1);
-    // printf("after count\n");
-    // count((void*)&t1);
-    // thr_2 = pthread_create( &thread2, NULL, count, (void*) t2);
+    // pthread_t thread1;
+    // int* pclient = malloc(sizeof(int));
     
     while (true) {
         printf("[+] server is waiting...\n");
@@ -346,7 +309,11 @@ int main(int argc, char** argv) {
          * 1. Accept Connection
          */
         int client_sockd = accept(server_sockd, &client_addr, &client_addrlen);
+        // foo.client_sockd = client_sockd;
+        // struct fooObject *pfoo = malloc(sizeof(struct fooObject));
+        // pthread_create(&thread1, NULL, handle_request, pfoo);
         // Remember errors happen
+        // handle_request(&foo);
 
         /*
          * 2. Read HTTP Message
@@ -361,7 +328,7 @@ int main(int argc, char** argv) {
         /*
          * 4. Construct Response
          */
-        status_code = construct_http_response(client_sockd, &message, &health);
+        construct_http_response(client_sockd, &message, &health);
 
         /*
          * 5. Send Response
@@ -369,9 +336,45 @@ int main(int argc, char** argv) {
         printf("Response Sent\n\n");
 
         health.entries++;
-        if (status_code > 201) {
+        if (message.status_code > 201) {
             health.errors++;
         }
     }
     return EXIT_SUCCESS;
 }
+
+// void * handle_request (struct fooObject* foo){
+//     struct httpObject message;
+
+//     struct healthObject health = {0,0};
+    
+//     mode_t log_permissions = 0666;
+//     if( foo->logfile ){
+//         printf("logfile present\n");
+//         int log_fd = open(foo->logfile, O_RDWR | O_TRUNC | O_CREAT, log_permissions);
+//         message.log_fd = log_fd;
+//     } else {
+//         printf("logfile NOT present\n");
+//         message.log_fd = -1;
+//     }
+
+//     /*
+//          * 2. Read HTTP Message
+//          */
+//         read_http_request(foo->client_sockd, &message);
+
+//         /*
+//          * 3. Process Request
+//          */
+//         process_request(foo->client_sockd, &message, &health);
+
+//         /*
+//          * 4. Construct Response
+//          */
+//         construct_http_response(foo->client_sockd, &message, &health);
+
+//         /*
+//          * 5. Send Response
+//          */
+//         printf("Response Sent\n\n");
+// }
