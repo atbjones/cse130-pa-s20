@@ -75,7 +75,6 @@ int nDigits(long long n)
 
 void write_log (struct httpObject* message) {
     char buff[BUFFER_SIZE] = "";
-
     if (message->status_code <= 201) {
         // Write first line
         snprintf(buff, BUFFER_SIZE, "%s /%s length %ld\n", 
@@ -83,16 +82,21 @@ void write_log (struct httpObject* message) {
         write(message->log_fd, buff, strlen(buff));
         memset(buff, 0, strlen(buff));
 
-        // Write transferred file data
-        if (strcmp(message->method, "HEAD") != 0){
+        // Write transferred file data if (GET and not healthcheck) or PUT
+        if (
+            (strcmp(message->method, "GET") == 0 
+            && strcmp(message->filename, "healthcheck") != 0)
+            || strcmp(message->method, "PUT") == 0)
+        {
             int fd = open(message->filename, O_RDONLY);
             ssize_t nbytes = BUFFER_SIZE, total_bytes = 0;
             while (nbytes != 0) {
                 nbytes = read(fd, message->buffer, BUFFER_SIZE);
-                // send(client_sockd, message->buffer, size, 0);
-                for (int i = 0; i < nbytes; i += 20){ // Outer loop writes a line of x-fered data
+                // Outer loop writes a line of x-fered data
+                for (int i = 0; i < nbytes; i += 20){
                     snprintf(buff + strlen(buff), BUFFER_SIZE, "%08d ", (int)total_bytes + i);
-                    for (int j = i; j < i + 20; j++) { // Inner loop writes data one byte at a time
+                    // Inner loop writes data one byte at a time
+                    for (int j = i; j < i + 20; j++) {
                         if (j == nbytes-1) {
                             break;
                         }
@@ -111,7 +115,6 @@ void write_log (struct httpObject* message) {
             message->method, message->filename, message->httpversion, message->status_code);
         write(message->log_fd, buff, strlen(buff));
     }
-
     write(message->log_fd, "========\n", 9);
 }
 

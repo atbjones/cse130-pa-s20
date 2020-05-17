@@ -9,6 +9,7 @@
 */
 void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     printf("----Reading Request----\n");
+    message->content_length = message->status_code = 0;
 
     /*
      * Start constructing HTTP request based off data from socket
@@ -181,14 +182,12 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
         message->httpversion, message->status_code, status_message, message->content_length);
     send(client_sockd, reply, strlen(reply), 0);
     memset(reply, 0, strlen(reply));
-
     if (strcmp(message->filename, "healthcheck") == 0) {
         snprintf(reply, message->content_length + 1, "%d\n%d", health->errors, health->entries);
         send(client_sockd, reply, strlen(reply), 0);
         // printf("strlen:%ld\n", strlen(reply));
         // printf("reply:%s\n", reply);
     }   
-
     // Send file data if valid GET request and not a healthcheck
     if (message->status_code == 200 
       && strcmp(message->method, "GET") == 0 
@@ -198,12 +197,12 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
         // Write file data
         ssize_t size = BUFFER_SIZE;
         while (size != 0) {
+        printf("closefile");
             size = read(fd, message->buffer, BUFFER_SIZE);
             send(client_sockd, message->buffer, size, 0);
         }
         close(fd);
     }
-
     write_log(message);
 }
 

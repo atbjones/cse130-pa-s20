@@ -714,3 +714,16 @@ GET /s_small length 28
 FAIL: GET /s_dne HTTP/1.1 --- response 404
 ========
 GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
+GET /healthcheck length 4
+========
