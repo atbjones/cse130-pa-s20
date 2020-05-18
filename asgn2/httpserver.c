@@ -128,8 +128,8 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         }
 
         // Write rest of bytes received
-        printf("content_length:%ld\n", message->content_length);
-        printf("TB:%ld\n", total_bytes);
+        // printf("content_length:%ld\n", message->content_length);
+        // printf("TB:%ld\n", total_bytes);
         while (total_bytes < message->content_length) {
             bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
             // Check if error receiving data
@@ -140,7 +140,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
             }
             write(fd, message->buffer, bytes);
             total_bytes += bytes;
-            printf("TB:%ld\n", total_bytes);
+            // printf("TB:%ld\n", total_bytes);
         }
         close(fd);
         message->content_length = 0;
@@ -220,9 +220,15 @@ void* handle_task(void* thread){
     message.log_fd = w_thread->message.log_fd;
     // the worker in a way is a consumer
 
+    int rc = 0;
     while (true) {
         // printf("Thread [%d] is ready for a task\n", w_thread->id);
         // while we don't have a valid client socket id we wait
+        rc = pthread_mutex_lock(w_thread->lock);
+        if (rc) {
+            perror("pthread_mutex_lock\n");
+            pthread_exit(NULL);
+        }
         while (w_thread->client_sockd < 0) {
             // sleep
             pthread_cond_wait(&w_thread->condition_var, w_thread->lock);
@@ -230,6 +236,7 @@ void* handle_task(void* thread){
 
         printf("Thread [%d] Handling request\n", w_thread->id);
         // Do stuff
+
         read_http_request(w_thread->client_sockd, &message);
 
         process_request(w_thread->client_sockd, &message, &w_thread->health);
@@ -245,6 +252,14 @@ void* handle_task(void* thread){
         // Say that we are done
         w_thread->client_sockd = -1;
         printf("Thread [%d] done handling request\n\n", w_thread->id);
+
+        rc = pthread_mutex_unlock(w_thread->lock);
+        if (rc) {
+            perror("pthread_mutex_unlock\n");
+            pthread_exit(NULL);
+        }
+
+        pthread_cond_signal(&w_thread->available);
     }
 }
 
@@ -282,7 +297,6 @@ int main(int argc, char** argv) {
     /*
         Create sockaddr_in with server information
     */
-    // char* port = argv[1];
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -326,9 +340,6 @@ int main(int argc, char** argv) {
     struct sockaddr client_addr;
     socklen_t client_addrlen;
 
-    struct fooObject foo;
-    foo.health.entries = foo.health.errors = 0;
-
     int log_fd = -1;
     if (logfile) {
         log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0666);
@@ -340,12 +351,14 @@ int main(int argc, char** argv) {
    struct worker workers[numthreads];
    int is_error = 0;
    pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+   pthread_mutex_t dlock = PTHREAD_MUTEX_INITIALIZER;
 
    // Initialize workers
    for (int i = 0; i < numthreads; i++) {
         workers[i].id = i;
         workers[i].client_sockd = -1;
         workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        workers[i].available = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         workers[i].lock = &lock;
         if (logfile) {
             workers[i].message.log_fd = log_fd;
@@ -363,11 +376,18 @@ int main(int argc, char** argv) {
     while (true) {
         printf("[+] server is waiting...\n");
 
+        int rc = pthread_mutex_lock(&dlock);
+        if (rc) {
+            perror("pthread_mutex_lock\n");
+            pthread_exit(NULL);
+        }
+
         /*
          * 1. Accept Connection
          */
         int client_sockd = accept(server_sockd, &client_addr, &client_addrlen);
         // Remember errors happen
+
 
         // TA CODE -----
         target_thread = count % numthreads;
@@ -377,11 +397,21 @@ int main(int argc, char** argv) {
         // determine if there is and available worker thread
         // if not, we sleep as the dispatcher thread
         // wait for worker thread to signal us the dispatcher that they are ready
+        while (workers[target_thread].client_sockd >= 0){
+            pthread_cond_wait(&workers[target_thread].available, &dlock);
+        }
+
         workers[target_thread].client_sockd = client_sockd;
         pthread_cond_signal(&workers[target_thread].condition_var);
         count++;
         // signal thread to start working
         // ------
+
+        rc = pthread_mutex_unlock(&dlock);
+        if (rc) {
+            perror("pthread_mutex_unlock\n");
+            pthread_exit(NULL);
+        }
     }
     return EXIT_SUCCESS;
 }

@@ -48,7 +48,8 @@ struct worker {
     struct httpObject message;
     struct healthObject health;
     pthread_cond_t condition_var;
-    pthread_mutex_t*  lock;
+    pthread_cond_t available;
+    pthread_mutex_t* lock;
 };
 
 void usage(){

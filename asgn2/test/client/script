@@ -2,15 +2,12 @@
 
 clear
 
-echo "threading tests"
-
-
 echo "PUT tests"
 
 for file in cb@d csmall cbig c-_-
 do
    #echo "PUT $file"
-   curl -T $file http://localhost:8080/$file &
+   curl -T $file http://localhost:8080/$file
    #diff ../$file $file >d_$file
 done
 wait
