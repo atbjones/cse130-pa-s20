@@ -46,6 +46,7 @@ struct worker {
     int client_sockd;
     pthread_t worker_id;
     struct httpObject message;
+    struct healthObject health;
     pthread_cond_t condition_var;
     pthread_mutex_t*  lock;
 };

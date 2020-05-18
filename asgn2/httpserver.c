@@ -21,8 +21,6 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
     char buff[bytes];
     memcpy(buff, message->buffer, bytes);
 
-    // printf("Printing Buffer...\n%s", buff);
-
     char* token;
     const char* whitespace = " \r\t\n\v\f";
     token = strtok(buff, whitespace);
@@ -44,10 +42,10 @@ void read_http_request(ssize_t client_sockd, struct httpObject* message) {
         message->content_length = atoi(token);
     }
 
-    printf("method: %s\n", message->method);
-    printf("file: %s\n", message->filename);
-    printf("httpversion: %s\n", message->httpversion);
-    printf("content_len: %ld\n", message->content_length);
+    // printf("method: %s\n", message->method);
+    // printf("file: %s\n", message->filename);
+    // printf("httpversion: %s\n", message->httpversion);
+    // printf("content_len: %ld\n", message->content_length);
 }
 
 /*
@@ -77,7 +75,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         return;
     }
 
-    // Open file and extract file stats
+    // Extract file stats
     struct stat info;
     int stat_ret = stat(message->filename, &info);
 
@@ -130,10 +128,19 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         }
 
         // Write rest of bytes received
+        printf("content_length:%ld\n", message->content_length);
+        printf("TB:%ld\n", total_bytes);
         while (total_bytes < message->content_length) {
             bytes = recv(client_sockd, message->buffer, BUFFER_SIZE, 0);
+            // Check if error receiving data
+            if ((bytes < BUFFER_SIZE) 
+             && (bytes + total_bytes < message->content_length)){
+                printf("error: receiving bytes\n");
+                // break;
+            }
             write(fd, message->buffer, bytes);
             total_bytes += bytes;
+            printf("TB:%ld\n", total_bytes);
         }
         close(fd);
         message->content_length = 0;
@@ -185,8 +192,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
     if (strcmp(message->filename, "healthcheck") == 0) {
         snprintf(reply, message->content_length + 1, "%d\n%d", health->errors, health->entries);
         send(client_sockd, reply, strlen(reply), 0);
-        // printf("strlen:%ld\n", strlen(reply));
-        // printf("reply:%s\n", reply);
     }   
     // Send file data if valid GET request and not a healthcheck
     if (message->status_code == 200 
@@ -210,22 +215,36 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
 
 void* handle_task(void* thread){
     struct worker* w_thread = (struct worker*)thread;
+
+    struct httpObject message;
+    message.log_fd = w_thread->message.log_fd;
     // the worker in a way is a consumer
 
     while (true) {
-        printf("Thread [%d] is ready for a task\n", w_thread->id);
+        // printf("Thread [%d] is ready for a task\n", w_thread->id);
         // while we don't have a valid client socket id we wait
         while (w_thread->client_sockd < 0) {
             // sleep
             pthread_cond_wait(&w_thread->condition_var, w_thread->lock);
         }
 
-        printf("Handling request\n");
-        sleep(3);
-        printf("Done handling request\n");
+        printf("Thread [%d] Handling request\n", w_thread->id);
         // Do stuff
+        read_http_request(w_thread->client_sockd, &message);
+
+        process_request(w_thread->client_sockd, &message, &w_thread->health);
+
+        construct_http_response(w_thread->client_sockd, &message, &w_thread->health);
+
+        printf("Thread [%d] Response Sent\n", w_thread->id);
+
+        w_thread->health.entries++;
+        if (message.status_code > 201) {
+            w_thread->health.errors++;
+        }
         // Say that we are done
         w_thread->client_sockd = -1;
+        printf("Thread [%d] done handling request\n\n", w_thread->id);
     }
 }
 
@@ -259,7 +278,6 @@ int main(int argc, char** argv) {
         usage();
     }
     port = atoi(argv[optind]);
-    // printf("numthread:%d\nlogfile:%s\n", numthreads, logfile);
 
     /*
         Create sockaddr_in with server information
@@ -308,14 +326,12 @@ int main(int argc, char** argv) {
     struct sockaddr client_addr;
     socklen_t client_addrlen;
 
-    // struct httpObject message;
-    // struct healthObject health = {0,0};
     struct fooObject foo;
     foo.health.entries = foo.health.errors = 0;
 
-    if( logfile ){
-        int log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0666);
-        foo.message.log_fd = log_fd;
+    int log_fd = -1;
+    if (logfile) {
+        log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0666);
     }
 
     /*
@@ -327,11 +343,13 @@ int main(int argc, char** argv) {
 
    // Initialize workers
    for (int i = 0; i < numthreads; i++) {
-       workers[i].id = i;
-       workers[i].client_sockd = -1;
-       workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-       workers[i].lock = &lock;
-
+        workers[i].id = i;
+        workers[i].client_sockd = -1;
+        workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+        workers[i].lock = &lock;
+        if (logfile) {
+            workers[i].message.log_fd = log_fd;
+        }
 
         is_error = pthread_create(&workers[i].worker_id, NULL, handle_task, (void*)&workers[i]);
 
@@ -339,7 +357,7 @@ int main(int argc, char** argv) {
             fprintf(stderr, "Error creating thread\n");
             return EXIT_FAILURE;
         }
-   }
+    }
 
 
     while (true) {
@@ -360,78 +378,10 @@ int main(int argc, char** argv) {
         // if not, we sleep as the dispatcher thread
         // wait for worker thread to signal us the dispatcher that they are ready
         workers[target_thread].client_sockd = client_sockd;
-        pthread_cond_signal(&workers[0].condition_var);
+        pthread_cond_signal(&workers[target_thread].condition_var);
         count++;
         // signal thread to start working
         // ------
-
-
-        // foo.client_sockd = client_sockd;
-        // // handle_request(&foo);
-        // pthread_t thread1;
-
-        // struct fooObject *pfoo = malloc(sizeof(struct fooObject));
-        // *pfoo = foo;
-        // pthread_create(&thread1, NULL, handle_request, pfoo);
-
-        // /*
-        //  * 2. Read HTTP Message
-        //  */
-        // read_http_request(client_sockd, &message);
-
-        // /*
-        //  * 3. Process Request
-        //  */
-        // process_request(client_sockd, &message, &health);
-
-        // /*
-        //  * 4. Construct Response
-        //  */
-        // construct_http_response(client_sockd, &message, &health);
-
-        // /*
-        //  * 5. Send Response
-        //  */
-        // printf("Response Sent\n\n");
-
-        // health.entries++;
-        // if (message.status_code > 201) {
-        //     health.errors++;
-        // }
     }
     return EXIT_SUCCESS;
-}
-
-void * handle_request (void* p_disObj){
-    struct fooObject disObj = *((struct fooObject*)p_disObj);
-    free(p_disObj);
-
-    struct httpObject message;
-    message.log_fd = disObj.message.log_fd;
-
-    /*
-        * 2. Read HTTP Message
-        */
-    read_http_request(disObj.client_sockd, &message);
-
-    /*
-        * 3. Process Request
-        */
-    process_request(disObj.client_sockd, &message, &disObj.health);
-
-    /*
-        * 4. Construct Response
-        */
-    construct_http_response(disObj.client_sockd, &message, &disObj.health);
-
-    /*
-        * 5. Send Response
-        */
-    printf("Response Sent\n\n");
-
-    disObj.health.entries++;
-    if (message.status_code > 201) {
-        disObj.health.errors++;
-    }
-    return NULL;
 }
