@@ -28,9 +28,3 @@ done
 
 echo "health check"
 curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck
-curl http://localhost:8080/healthcheck --output healthcheck

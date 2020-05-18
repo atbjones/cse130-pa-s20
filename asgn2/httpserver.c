@@ -1,6 +1,6 @@
 #include "httpserver.h"
 
-// void handle_request (struct fooObject* foo);
+void * handle_request (void* p_disObj);
 
 /*
     \brief 1. Want to read in the HTTP message/ data coming in from socket
@@ -197,22 +197,47 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
         // Write file data
         ssize_t size = BUFFER_SIZE;
         while (size != 0) {
-        printf("closefile");
             size = read(fd, message->buffer, BUFFER_SIZE);
             send(client_sockd, message->buffer, size, 0);
         }
         close(fd);
     }
-    write_log(message);
+
+    if (message->log_fd != 0){
+        write_log(message);
+    }
 }
 
-int main(int argc, char** argv) {
+void* handle_task(void* thread){
+    struct worker* w_thread = (struct worker*)thread;
+    // the worker in a way is a consumer
 
+    while (true) {
+        printf("Thread [%d] is ready for a task\n", w_thread->id);
+        // while we don't have a valid client socket id we wait
+        while (w_thread->client_sockd < 0) {
+            // sleep
+            pthread_cond_wait(&w_thread->condition_var, w_thread->lock);
+        }
+
+        printf("Handling request\n");
+        sleep(3);
+        printf("Done handling request\n");
+        // Do stuff
+        // Say that we are done
+        w_thread->client_sockd = -1;
+    }
+}
+
+int count = 0;
+int target_thread = 0;
+int main(int argc, char** argv) {
+    /*
+        Option Parsing
+    */
     if (argc < 2 || argc > 6) {
         usage();
     }
-
-    // Parse options 
     int opt, numthreads = 4, port;
     char* logfile = NULL;
     while ((opt = getopt(argc, argv, "N:l:")) != -1) {
@@ -233,7 +258,6 @@ int main(int argc, char** argv) {
     if (argc == optind) {
         usage();
     }
-
     port = atoi(argv[optind]);
     // printf("numthread:%d\nlogfile:%s\n", numthreads, logfile);
 
@@ -266,21 +290,17 @@ int main(int argc, char** argv) {
     /*
         This allows you to avoid: 'Bind: Address Already in Use' error
     */
-    int ret = setsockopt(server_sockd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+    check(setsockopt(server_sockd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)));
 
     /*
         Bind server address to socket that is open
     */
-    ret = bind(server_sockd, (struct sockaddr *) &server_addr, addrlen);
+    check(bind(server_sockd, (struct sockaddr *) &server_addr, addrlen));
 
     /*
         Listen for incoming connections
     */
-    ret = listen(server_sockd, 5); // 5 should be enough, if not use SOMAXCONN
-
-    if (ret < 0) {
-        return EXIT_FAILURE;
-    }
+    check(listen(server_sockd, 5)); // 5 should be enough, if not use SOMAXCONN
 
     /*
         Connecting with a client
@@ -288,19 +308,40 @@ int main(int argc, char** argv) {
     struct sockaddr client_addr;
     socklen_t client_addrlen;
 
-    struct httpObject message;
-    struct healthObject health = {0,0};
-    // struct fooObject foo;
-    
-    if( logfile ){
-        int log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, (mode_t)0666);
-        message.log_fd = log_fd;
-    }
-    // foo.logfile = logfile;
+    // struct httpObject message;
+    // struct healthObject health = {0,0};
+    struct fooObject foo;
+    foo.health.entries = foo.health.errors = 0;
 
-    // pthread_t thread1;
-    // int* pclient = malloc(sizeof(int));
-    
+    if( logfile ){
+        int log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0666);
+        foo.message.log_fd = log_fd;
+    }
+
+    /*
+        Create and initialize worker threads
+    */
+   struct worker workers[numthreads];
+   int is_error = 0;
+   pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+   // Initialize workers
+   for (int i = 0; i < numthreads; i++) {
+       workers[i].id = i;
+       workers[i].client_sockd = -1;
+       workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
+       workers[i].lock = &lock;
+
+
+        is_error = pthread_create(&workers[i].worker_id, NULL, handle_task, (void*)&workers[i]);
+
+        if (is_error) {
+            fprintf(stderr, "Error creating thread\n");
+            return EXIT_FAILURE;
+        }
+   }
+
+
     while (true) {
         printf("[+] server is waiting...\n");
 
@@ -308,72 +349,89 @@ int main(int argc, char** argv) {
          * 1. Accept Connection
          */
         int client_sockd = accept(server_sockd, &client_addr, &client_addrlen);
-        // foo.client_sockd = client_sockd;
-        // struct fooObject *pfoo = malloc(sizeof(struct fooObject));
-        // pthread_create(&thread1, NULL, handle_request, pfoo);
         // Remember errors happen
-        // handle_request(&foo);
 
-        /*
-         * 2. Read HTTP Message
-         */
-        read_http_request(client_sockd, &message);
+        // TA CODE -----
+        target_thread = count % numthreads;
 
-        /*
-         * 3. Process Request
-         */
-        process_request(client_sockd, &message, &health);
+        // for worker in workers
+        //      check if worker is available
+        // determine if there is and available worker thread
+        // if not, we sleep as the dispatcher thread
+        // wait for worker thread to signal us the dispatcher that they are ready
+        workers[target_thread].client_sockd = client_sockd;
+        pthread_cond_signal(&workers[0].condition_var);
+        count++;
+        // signal thread to start working
+        // ------
 
-        /*
-         * 4. Construct Response
-         */
-        construct_http_response(client_sockd, &message, &health);
 
-        /*
-         * 5. Send Response
-         */
-        printf("Response Sent\n\n");
+        // foo.client_sockd = client_sockd;
+        // // handle_request(&foo);
+        // pthread_t thread1;
 
-        health.entries++;
-        if (message.status_code > 201) {
-            health.errors++;
-        }
+        // struct fooObject *pfoo = malloc(sizeof(struct fooObject));
+        // *pfoo = foo;
+        // pthread_create(&thread1, NULL, handle_request, pfoo);
+
+        // /*
+        //  * 2. Read HTTP Message
+        //  */
+        // read_http_request(client_sockd, &message);
+
+        // /*
+        //  * 3. Process Request
+        //  */
+        // process_request(client_sockd, &message, &health);
+
+        // /*
+        //  * 4. Construct Response
+        //  */
+        // construct_http_response(client_sockd, &message, &health);
+
+        // /*
+        //  * 5. Send Response
+        //  */
+        // printf("Response Sent\n\n");
+
+        // health.entries++;
+        // if (message.status_code > 201) {
+        //     health.errors++;
+        // }
     }
     return EXIT_SUCCESS;
 }
 
-// void * handle_request (struct fooObject* foo){
-//     struct httpObject message;
+void * handle_request (void* p_disObj){
+    struct fooObject disObj = *((struct fooObject*)p_disObj);
+    free(p_disObj);
 
-//     struct healthObject health = {0,0};
-    
-//     mode_t log_permissions = 0666;
-//     if( foo->logfile ){
-//         printf("logfile present\n");
-//         int log_fd = open(foo->logfile, O_RDWR | O_TRUNC | O_CREAT, log_permissions);
-//         message.log_fd = log_fd;
-//     } else {
-//         printf("logfile NOT present\n");
-//         message.log_fd = -1;
-//     }
+    struct httpObject message;
+    message.log_fd = disObj.message.log_fd;
 
-//     /*
-//          * 2. Read HTTP Message
-//          */
-//         read_http_request(foo->client_sockd, &message);
+    /*
+        * 2. Read HTTP Message
+        */
+    read_http_request(disObj.client_sockd, &message);
 
-//         /*
-//          * 3. Process Request
-//          */
-//         process_request(foo->client_sockd, &message, &health);
+    /*
+        * 3. Process Request
+        */
+    process_request(disObj.client_sockd, &message, &disObj.health);
 
-//         /*
-//          * 4. Construct Response
-//          */
-//         construct_http_response(foo->client_sockd, &message, &health);
+    /*
+        * 4. Construct Response
+        */
+    construct_http_response(disObj.client_sockd, &message, &disObj.health);
 
-//         /*
-//          * 5. Send Response
-//          */
-//         printf("Response Sent\n\n");
-// }
+    /*
+        * 5. Send Response
+        */
+    printf("Response Sent\n\n");
+
+    disObj.health.entries++;
+    if (message.status_code > 201) {
+        disObj.health.errors++;
+    }
+    return NULL;
+}

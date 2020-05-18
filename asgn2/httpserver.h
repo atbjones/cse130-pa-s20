@@ -13,6 +13,7 @@
 #include <stdbool.h> // true, false
 #include <errno.h>
 #include <pthread.h>
+#include <limits.h>
 
 #define BUFFER_SIZE 4096
 
@@ -35,10 +36,18 @@ struct healthObject {
 };
 
 struct fooObject {
-    // struct httpObject message;
-    // struct healthObject health;
+    struct httpObject message;
+    struct healthObject health;
     int client_sockd;
-    char* logfile;
+};
+
+struct worker {
+    int id;
+    int client_sockd;
+    pthread_t worker_id;
+    struct httpObject message;
+    pthread_cond_t condition_var;
+    pthread_mutex_t*  lock;
 };
 
 void usage(){
@@ -46,7 +55,14 @@ void usage(){
     exit(EXIT_FAILURE);
 }
 
-bool filenamecheck(char* filename) {
+int check (int value) {
+    if (value < 0){
+        return EXIT_FAILURE;
+    }
+    return value;
+}
+
+bool filenamecheck (char* filename) {
     char c;
     for (size_t i = 0; i < strlen(filename); i++) {
         c = filename[i];
@@ -94,13 +110,13 @@ void write_log (struct httpObject* message) {
                 nbytes = read(fd, message->buffer, BUFFER_SIZE);
                 // Outer loop writes a line of x-fered data
                 for (int i = 0; i < nbytes; i += 20){
-                    snprintf(buff + strlen(buff), BUFFER_SIZE, "%08d ", (int)total_bytes + i);
+                    snprintf(buff + strlen(buff), BUFFER_SIZE, "%08d", (int)total_bytes + i);
                     // Inner loop writes data one byte at a time
                     for (int j = i; j < i + 20; j++) {
                         if (j == nbytes-1) {
                             break;
                         }
-                        snprintf(buff + strlen(buff), BUFFER_SIZE, "%02x ", message->buffer[j]);
+                        snprintf(buff + strlen(buff), BUFFER_SIZE, " %02x", message->buffer[j]);
                     }
                     snprintf(buff + strlen(buff), BUFFER_SIZE, "\n");
                     write(message->log_fd, buff, strlen(buff));
