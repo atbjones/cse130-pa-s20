@@ -44,6 +44,7 @@ struct worker {
     pthread_cond_t condition_var;
     pthread_cond_t available;
     pthread_mutex_t* lock;
+    bool avail;
 };
 
 void usage(){
@@ -108,15 +109,15 @@ void write_log (struct httpObject* message) {
                 nbytes = read(fd, message->buffer, BUFFER_SIZE);
                 // Outer loop writes a line of x-fered data
                 for (int i = 0; i < nbytes; i += 20){
-                    snprintf(buff + strlen(buff), BUFFER_SIZE, "%08d", (int)total_bytes + i);
+                    sprintf(buff + strlen(buff), "%08d", (int)total_bytes + i);
                     // Inner loop writes data one byte at a time
                     for (int j = i; j < i + 20; j++) {
                         if (j == nbytes-1) {
                             break;
                         }
-                        snprintf(buff + strlen(buff), BUFFER_SIZE, " %02x", message->buffer[j]);
+                        sprintf(buff + strlen(buff), " %02x", message->buffer[j]);
                     }
-                    snprintf(buff + strlen(buff), BUFFER_SIZE, "\n");
+                    sprintf(buff + strlen(buff), "\n");
                     write(message->log_fd, buff, strlen(buff));
                     memset(buff, 0, strlen(buff));
                 }
@@ -134,8 +135,8 @@ void write_log (struct httpObject* message) {
 
 void write_log2 (struct httpObject* message, off_t offset) {
     const int BUFFER_SIZE_MOD_20 = BUFFER_SIZE - BUFFER_SIZE % 20;
-    printf("bufM2:%d\n", BUFFER_SIZE_MOD_20);
-    printf("length %ld\n", message->content_length);
+    // printf("bufM2:%d\n", BUFFER_SIZE_MOD_20);
+    // printf("length %ld\n", message->content_length);
     char buff[BUFFER_SIZE - BUFFER_SIZE % 20] = "";
     if (message->status_code <= 201) {
         // Write first line

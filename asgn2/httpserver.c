@@ -1,6 +1,6 @@
 #include "httpserver.h"
 
-void * handle_request (void* p_disObj);
+// void * handle_request (void* p_disObj);
 
 /*
     \brief 1. Want to read in the HTTP message/ data coming in from socket
@@ -263,6 +263,7 @@ void* handle_task(void* thread){
         }
 
         pthread_cond_signal(&w_thread->available);
+        w_thread->avail = true;
 
     }
 }
@@ -368,6 +369,7 @@ int main(int argc, char** argv) {
         workers[i].available = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         workers[i].lock = &lock;
         workers[i].p_health = p_health;
+        workers[i].avail = true;
         if (logfile) {
             workers[i].message.log_fd = log_fd;
         }
@@ -396,21 +398,27 @@ int main(int argc, char** argv) {
         // Remember errors happen
 
 
-        target_thread = count % numthreads;
+        // target_thread = count % numthreads;
 
-        // for worker in workers
-        //      check if worker is available
-        // determine if there is and available worker thread
-        // if not, we sleep as the dispatcher thread
-        // wait for worker thread to signal us the dispatcher that they are ready
-        while (workers[target_thread].client_sockd >= 0){
-            pthread_cond_wait(&workers[target_thread].available, &dlock);
+        // Find next available thread;
+        while (true) {
+            if (workers[target_thread].avail){
+                workers[target_thread].avail = false;
+                break;
+            } else {
+                count++;
+                target_thread = count % numthreads;
+            }
         }
 
+        // while (workers[target_thread].client_sockd >= 0){
+        //     pthread_cond_wait(&workers[target_thread].available, &dlock);
+        // }
+
+        // give target_thread client socket and signal to start working
         workers[target_thread].client_sockd = client_sockd;
-        // signal thread to start working
         pthread_cond_signal(&workers[target_thread].condition_var);
-        count++;
+        // count++;
 
         rc = pthread_mutex_unlock(&dlock);
         if (rc) {
