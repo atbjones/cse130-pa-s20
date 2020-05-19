@@ -35,18 +35,12 @@ struct healthObject {
     int errors;
 };
 
-struct fooObject {
-    struct httpObject message;
-    struct healthObject health;
-    int client_sockd;
-};
-
 struct worker {
     int id;
     int client_sockd;
     pthread_t worker_id;
     struct httpObject message;
-    struct healthObject health;
+    struct healthObject* p_health;
     pthread_cond_t condition_var;
     pthread_cond_t available;
     pthread_mutex_t* lock;
@@ -93,10 +87,12 @@ int nDigits(long long n)
 
 void write_log (struct httpObject* message) {
     char buff[BUFFER_SIZE] = "";
+    struct stat info;
+    stat(message->filename, &info);
     if (message->status_code <= 201) {
         // Write first line
         snprintf(buff, BUFFER_SIZE, "%s /%s length %ld\n", 
-            message->method, message->filename, message->content_length);
+            message->method, message->filename, info.st_size);
         write(message->log_fd, buff, strlen(buff));
         memset(buff, 0, strlen(buff));
 
@@ -121,6 +117,54 @@ void write_log (struct httpObject* message) {
                         snprintf(buff + strlen(buff), BUFFER_SIZE, " %02x", message->buffer[j]);
                     }
                     snprintf(buff + strlen(buff), BUFFER_SIZE, "\n");
+                    write(message->log_fd, buff, strlen(buff));
+                    memset(buff, 0, strlen(buff));
+                }
+                total_bytes += nbytes;
+            }
+            close(fd);
+        }
+    } else {
+        snprintf(buff, BUFFER_SIZE-1, "FAIL: %s /%s %s --- response %d\n", 
+            message->method, message->filename, message->httpversion, message->status_code);
+        write(message->log_fd, buff, strlen(buff));
+    }
+    write(message->log_fd, "========\n", 9);
+}
+
+void write_log2 (struct httpObject* message, off_t offset) {
+    const int BUFFER_SIZE_MOD_20 = BUFFER_SIZE - BUFFER_SIZE % 20;
+    printf("bufM2:%d\n", BUFFER_SIZE_MOD_20);
+    printf("length %ld\n", message->content_length);
+    char buff[BUFFER_SIZE - BUFFER_SIZE % 20] = "";
+    if (message->status_code <= 201) {
+        // Write first line
+        sprintf(buff, "%s /%s length %ld\n", 
+            message->method, message->filename, message->content_length);
+        write(message->log_fd, buff, strlen(buff));
+        memset(buff, 0, strlen(buff));
+
+        // Write transferred file data if (GET and not healthcheck) or PUT
+        if (
+            (strcmp(message->method, "GET") == 0 
+            && strcmp(message->filename, "healthcheck") != 0)
+            || strcmp(message->method, "PUT") == 0)
+        {
+            int fd = open(message->filename, O_RDONLY);
+            ssize_t nbytes = 1, total_bytes = 0;
+            while (nbytes != 0) {
+                nbytes = read(fd, message->buffer, BUFFER_SIZE_MOD_20);
+                // Outer loop writes a line of x-fered data
+                for (int i = 0; i < nbytes; i += 20){
+                    sprintf(buff + strlen(buff), "%08d", (int)total_bytes + i);
+                    // Inner loop writes data one byte at a time
+                    for (int j = i; j < i + 20; j++) {
+                        if (j == nbytes) {
+                            break;
+                        }
+                        sprintf(buff + strlen(buff), " %02x", message->buffer[j]);
+                    }
+                    sprintf(buff + strlen(buff), "\n");
                     write(message->log_fd, buff, strlen(buff));
                     memset(buff, 0, strlen(buff));
                 }

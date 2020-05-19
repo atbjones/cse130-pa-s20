@@ -86,12 +86,12 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         if (stat_ret == -1){
             printf("file error: %s: does not exist\n", message->filename);
             message->status_code = 404;
-            message->content_length = 0;
+            // message->content_length = 0;
 
         } else if ((info.st_mode & S_IRUSR) != S_IRUSR){
             printf("file error: %s: bad permissions\n", message->filename);
             message->status_code = 403;
-            message->content_length = 0;
+            // message->content_length = 0;
 
         } else {
             message->status_code = 200;
@@ -108,7 +108,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         } else if ((info.st_mode & S_IWUSR) != S_IWUSR) {
             printf("file error: %s: Does not have write permission\n", message->filename);
             message->status_code = 403;
-            message->content_length = 0;
+            // message->content_length = 0;
             return;
         } else {
             message->status_code = 200;
@@ -117,9 +117,8 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         char double_crlf[5] = "\r\n\r\n";
         char* body;
         ssize_t bytes = BUFFER_SIZE, total_bytes = 0;
-        mode_t permissions = 0666; // Sets file permissions to u=rw on O_CREAT
         
-        int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, permissions);
+        int fd = open(message->filename, O_RDWR | O_TRUNC | O_CREAT, (mode_t)0666);
 
         // Write bytes that are in same message as header
         body = strstr((char*) message->buffer, double_crlf);
@@ -143,7 +142,7 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
             // printf("TB:%ld\n", total_bytes);
         }
         close(fd);
-        message->content_length = 0;
+        // message->content_length = 0;
 
     } else {
         printf("Method not implemented");   
@@ -183,10 +182,15 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
             break;
     }
 
+    // Send header
     char reply[BUFFER_SIZE] = "";
-
-    snprintf(reply, BUFFER_SIZE, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
-        message->httpversion, message->status_code, status_message, message->content_length);
+    if (strcmp(message->method, "PUT") == 0){
+        snprintf(reply, BUFFER_SIZE, "%s %d %s\r\nContent-Length: %d\r\n\r\n",
+            message->httpversion, message->status_code, status_message, 0);
+    } else {
+        snprintf(reply, BUFFER_SIZE, "%s %d %s\r\nContent-Length: %ld\r\n\r\n",
+            message->httpversion, message->status_code, status_message, message->content_length);
+    }
     send(client_sockd, reply, strlen(reply), 0);
     memset(reply, 0, strlen(reply));
     if (strcmp(message->filename, "healthcheck") == 0) {
@@ -206,10 +210,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
             send(client_sockd, message->buffer, size, 0);
         }
         close(fd);
-    }
-
-    if (message->log_fd != 0){
-        write_log(message);
     }
 }
 
@@ -235,23 +235,26 @@ void* handle_task(void* thread){
         }
 
         printf("Thread [%d] Handling request\n", w_thread->id);
-        // Do stuff
 
         read_http_request(w_thread->client_sockd, &message);
 
-        process_request(w_thread->client_sockd, &message, &w_thread->health);
+        process_request(w_thread->client_sockd, &message, w_thread->p_health);
 
-        construct_http_response(w_thread->client_sockd, &message, &w_thread->health);
+        construct_http_response(w_thread->client_sockd, &message, w_thread->p_health);
 
         printf("Thread [%d] Response Sent\n", w_thread->id);
 
-        w_thread->health.entries++;
+        w_thread->p_health->entries++;
         if (message.status_code > 201) {
-            w_thread->health.errors++;
+            w_thread->p_health->errors++;
         }
         // Say that we are done
         w_thread->client_sockd = -1;
         printf("Thread [%d] done handling request\n\n", w_thread->id);
+
+        if (message.log_fd != 0){
+            write_log2(&message, 0);
+        }
 
         rc = pthread_mutex_unlock(w_thread->lock);
         if (rc) {
@@ -260,6 +263,7 @@ void* handle_task(void* thread){
         }
 
         pthread_cond_signal(&w_thread->available);
+
     }
 }
 
@@ -286,6 +290,10 @@ int main(int argc, char** argv) {
             fprintf(stderr, "Usage: %s [-lN] [file...]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
+    }
+    int log_fd = -1;
+    if (logfile) {
+        log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0644);
     }
 
     // If no port specified
@@ -340,10 +348,9 @@ int main(int argc, char** argv) {
     struct sockaddr client_addr;
     socklen_t client_addrlen;
 
-    int log_fd = -1;
-    if (logfile) {
-        log_fd = open(logfile, O_RDWR | O_TRUNC | O_CREAT, 0666);
-    }
+    // Create and initialize server health object
+    struct healthObject* p_health = malloc(sizeof(struct healthObject));
+    p_health->entries = p_health->errors = 0;
 
     /*
         Create and initialize worker threads
@@ -360,6 +367,7 @@ int main(int argc, char** argv) {
         workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         workers[i].available = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         workers[i].lock = &lock;
+        workers[i].p_health = p_health;
         if (logfile) {
             workers[i].message.log_fd = log_fd;
         }
@@ -371,7 +379,6 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
         }
     }
-
 
     while (true) {
         printf("[+] server is waiting...\n");
@@ -389,7 +396,6 @@ int main(int argc, char** argv) {
         // Remember errors happen
 
 
-        // TA CODE -----
         target_thread = count % numthreads;
 
         // for worker in workers
@@ -402,10 +408,9 @@ int main(int argc, char** argv) {
         }
 
         workers[target_thread].client_sockd = client_sockd;
+        // signal thread to start working
         pthread_cond_signal(&workers[target_thread].condition_var);
         count++;
-        // signal thread to start working
-        // ------
 
         rc = pthread_mutex_unlock(&dlock);
         if (rc) {
@@ -413,5 +418,7 @@ int main(int argc, char** argv) {
             pthread_exit(NULL);
         }
     }
+    // printf("health:%d,%d\n", p_health->entries, p_health->errors);
+    // free health obj
     return EXIT_SUCCESS;
 }

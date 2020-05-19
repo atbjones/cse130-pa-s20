@@ -1,13 +1,19 @@
-#!/bin/sh
+#!/bin/bash
 
 clear
 
 echo "PUT tests"
 
-for file in cb@d csmall cbig c-_-
+for file in {1..6}
 do
-   #echo "PUT $file"
-   curl -T $file http://localhost:8080/$file
+   echo "PUT $file"
+   time curl -T c$file http://localhost:8080/c$file
+   #diff ../$file $file >d_$file
+done
+for file in csmall cbig
+do
+   echo "PUT $file"
+   time curl -T $file http://localhost:8080/$file
    #diff ../$file $file >d_$file
 done
 wait
@@ -19,13 +25,17 @@ wait
 #   curl -I http://localhost:8080/$file
 #done
 #
-#echo "GET tests"
-#for file in s_bad s_f@il s_dne s_big s_small
-#do
-#   echo "GET $file"
-#   curl http://localhost:8080/$file --output $file
-#   diff ../$file $file >d_$file
-#done
-#
-#echo "health check"
-#curl http://localhost:8080/healthcheck --output healthcheck
+echo "GET tests"
+for file in s_bad s_f@il s_dne s_big s_small
+do
+   echo "GET $file"
+   curl http://localhost:8080/$file --output $file
+   diff ../$file $file >d_$file
+done
+
+echo "health check"
+
+curl http://localhost:8080/healthcheck --output healthcheck
+curl http://localhost:8080/healthcheck --output healthcheck
+curl http://localhost:8080/healthcheck --output healthcheck
+curl http://localhost:8080/healthcheck --output healthcheck
