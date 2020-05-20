@@ -101,12 +101,10 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         if (stat_ret == -1){
             printf("file error: %s: does not exist\n", message->filename);
             message->status_code = 404;
-            // message->content_length = 0;
 
         } else if ((info.st_mode & S_IRUSR) != S_IRUSR){
             printf("file error: %s: bad permissions\n", message->filename);
             message->status_code = 403;
-            // message->content_length = 0;
 
         } else {
             message->status_code = 200;
@@ -123,7 +121,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
         } else if ((info.st_mode & S_IWUSR) != S_IWUSR) {
             printf("file error: %s: Does not have write permission\n", message->filename);
             message->status_code = 403;
-            // message->content_length = 0;
             return;
         } else {
             message->status_code = 200;
@@ -160,7 +157,6 @@ void process_request(ssize_t client_sockd, struct httpObject* message, struct he
             printf("TB:%ld\n", total_bytes);
         }
         close(fd);
-        // message->content_length = 0;
 
     } else {
         printf("Method not implemented");   
@@ -202,11 +198,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
             break;
     }
 
-    // health->entries++;
-    // if (message->status_code > 201) {
-    //     health->errors++;
-    // }
-
     // Send header
     char reply[BUFFER_SIZE] = "";
     if (strcmp(message->method, "PUT") == 0){
@@ -238,11 +229,6 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
         }
 
     }
-
-    // health->entries++;
-    // if (message->status_code > 201) {
-    //     health->errors++;
-    // }
 }
 
 //---------------------------------------------------------------------------------------------------------
@@ -297,7 +283,6 @@ void* handle_task(void* thread){
             pthread_exit(NULL);
         }
 
-        // pthread_cond_signal(&w_thread->available);
         w_thread->avail = true;
     }
 }
@@ -402,7 +387,6 @@ int main(int argc, char** argv) {
         workers[i].id = i;
         workers[i].client_sockd = -1;
         workers[i].condition_var = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-        // workers[i].available = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
         workers[i].lock = &lock;
         workers[i].p_health = p_health;
         workers[i].avail = true;
