@@ -26,7 +26,6 @@ struct httpObject {
     ssize_t content_length; // example: 13
     int status_code;
     uint8_t buffer[BUFFER_SIZE];
-    // bool logging;
     int log_fd;
 };
 
@@ -38,11 +37,11 @@ struct healthObject {
 struct worker {
     int id;
     int client_sockd;
+    int log_fd;
     pthread_t worker_id;
-    struct httpObject message;
     struct healthObject* p_health;
     pthread_cond_t condition_var;
-    pthread_cond_t available;
+    // pthread_cond_t available;
     pthread_mutex_t* lock;
     bool avail;
 };
@@ -84,7 +83,7 @@ int nDigits(long long n)
         ++count; 
     } 
     return count; 
-} 
+}
 
 void write_log (struct httpObject* message) {
     char buff[BUFFER_SIZE] = "";
@@ -133,7 +132,7 @@ void write_log (struct httpObject* message) {
     write(message->log_fd, "========\n", 9);
 }
 
-void write_log2 (struct httpObject* message, off_t offset) {
+void write_log2 (struct httpObject* message) {
     const int BUFFER_SIZE_MOD_20 = BUFFER_SIZE - BUFFER_SIZE % 20;
     // printf("bufM2:%d\n", BUFFER_SIZE_MOD_20);
     // printf("length %ld\n", message->content_length);
