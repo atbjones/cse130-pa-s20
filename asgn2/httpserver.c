@@ -202,10 +202,10 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
             break;
     }
 
-    health->entries++;
-    if (message->status_code > 201) {
-        health->errors++;
-    }
+    // health->entries++;
+    // if (message->status_code > 201) {
+    //     health->errors++;
+    // }
 
     // Send header
     char reply[BUFFER_SIZE] = "";
@@ -238,6 +238,11 @@ void construct_http_response(ssize_t client_sockd, struct httpObject* message, s
         }
 
     }
+
+    // health->entries++;
+    // if (message->status_code > 201) {
+    //     health->errors++;
+    // }
 }
 
 //---------------------------------------------------------------------------------------------------------
@@ -279,6 +284,11 @@ void* handle_task(void* thread){
 
         if (message.log_fd != 0){
             write_log2(&message);
+        }
+
+        w_thread->p_health->entries++;
+        if (message.status_code > 201) {
+            w_thread->p_health->errors++;
         }
 
         rc = pthread_mutex_unlock(w_thread->lock);
