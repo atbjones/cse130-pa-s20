@@ -169,6 +169,15 @@ int main(int argc,char **argv) {
         }
     }
 
+    // If no connectport or listenport specified
+    if (optind + 2 != argc) {
+        fprintf(stderr, "Usage: %s [-RN] [port_to_connect] [port_to_listen]\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+    connectport = atoi(argv[optind]);
+    listenport = atoi(argv[optind+1]);
+
+
     // Remember to validate return values
     // You can fail tests for not validating
     connectport = atoi(argv[1]);
