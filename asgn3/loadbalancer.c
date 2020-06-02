@@ -60,8 +60,9 @@ int server_listen(int port) {
  */
 int bridge_connections(int fromfd, int tofd) {
     char buff[BUFFER_SIZE];
-    int n;
-    while (n > 0)  {
+    int n = BUFFER_SIZE;
+    while (n == BUFFER_SIZE)  {
+        // printf("recv\n");
         n = recv(fromfd, buff, BUFFER_SIZE, 0);
         if (n < 0) {
             printf("connection error receiving\n");
@@ -72,7 +73,7 @@ int bridge_connections(int fromfd, int tofd) {
         }
         buff[n] = '\0';
         printf("[+]Buffer\n****************************\n%s\n****************************\n", buff);
-        // sleep(1);
+        // printf("send\n");
         n = send(tofd, buff, n, 0);
         if (n < 0) {
             printf("connection error sending\n");
@@ -81,8 +82,9 @@ int bridge_connections(int fromfd, int tofd) {
             printf("sending connection ended\n");
             return 0;
         }
+        // printf("done\n");
     }
-    // return n;
+    return n;
 }
 
 /*
