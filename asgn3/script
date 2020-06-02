@@ -8,24 +8,40 @@ do
 echo "foo bar bim" > $file
 done
 
-#echo "PUT tests"
-#for file in {1..6}
-#do
-#   echo "PUT $file"
-#   curl -T $file http://localhost:1234/$file
-#done
-#wait
-#
-#echo "GET tests"
-#for file in {1..6}
-#do
-#   echo "GET $file"
-#   curl http://localhost:1234/c$file --output $file
-#done
-#wait
-#
-echo "health check"
-curl http://localhost:1234/healthcheck --output healthcheck
+echo "PUT small tests"
+for file in {1..1}
+do
+   echo "PUT $file"
+   curl -T $file http://localhost:1234/s$file
+done
+wait
+
+echo "GET small tests"
+for file in {1..1}
+do
+   echo "GET $file"
+   curl http://localhost:1234/s$file --output s$file
+done
+wait
+
+echo "PUT big tests"
+for file in {1..2}
+do
+   echo "PUT b$file"
+   curl -T b$file http://localhost:1234/sb$file
+done
+wait
+
+echo "GET big tests"
+for file in {1..2}
+do
+   echo "GET b$file"
+   curl http://localhost:1234/sb$file --output sb$file
+done
+wait
+
+#echo "health check"
+#curl http://localhost:1234/healthcheck --output healthcheck
 
 echo "remove testing files"
 for file in {1..6}

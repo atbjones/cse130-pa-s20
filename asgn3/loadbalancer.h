@@ -12,6 +12,8 @@
 #include<sys/types.h>
 #include<unistd.h>
 
+#define BUFFER_SIZE 4096
+
 static const char health_check_request[] = "GET /healthcheck HTTP/1.1\r\n\r\n";
 
 const char* whitespace = " \r\t\n\v\f";

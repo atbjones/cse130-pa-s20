@@ -59,27 +59,30 @@ int server_listen(int port) {
  * returns: number of bytes sent, 0 if connection closed, -1 on error
  */
 int bridge_connections(int fromfd, int tofd) {
-    char recvline[100];
-    int n = recv(fromfd, recvline, 100, 0);
-    if (n < 0) {
-        printf("connection error receiving\n");
-        return -1;
-    } else if (n == 0) {
-        printf("receiving connection ended\n");
-        return 0;
+    char buff[BUFFER_SIZE];
+    int n;
+    while (n > 0)  {
+        n = recv(fromfd, buff, BUFFER_SIZE, 0);
+        if (n < 0) {
+            printf("connection error receiving\n");
+            return -1;
+        } else if (n == 0) {
+            printf("receiving connection ended\n");
+            return 0;
+        }
+        buff[n] = '\0';
+        printf("[+]Buffer\n****************************\n%s\n****************************\n", buff);
+        // sleep(1);
+        n = send(tofd, buff, n, 0);
+        if (n < 0) {
+            printf("connection error sending\n");
+            return -1;
+        } else if (n == 0) {
+            printf("sending connection ended\n");
+            return 0;
+        }
     }
-    recvline[n] = '\0';
-    printf("%s", recvline);
-    sleep(1);
-    n = send(tofd, recvline, n, 0);
-    if (n < 0) {
-        printf("connection error sending\n");
-        return -1;
-    } else if (n == 0) {
-        printf("sending connection ended\n");
-        return 0;
-    }
-    return n;
+    // return n;
 }
 
 /*
@@ -248,12 +251,22 @@ int main(int argc,char **argv) {
     if ((listenfd = server_listen(listenport)) < 0)
         err(1, "failed listening");
 
-    int next = 0;
+    int requests = 0, next = 0;
     while (true) {
 
         printf("[+] load balancer waiting...\n");
         if ((acceptfd = accept(listenfd, NULL, NULL)) < 0)
             err(1, "failed accepting");
+
+        requests++;
+
+        // Perform routine healthcheck
+        if (requests % num_req == 0) {
+            for (int i = 0; i < num_servers; i++) {
+                printf("[+] checking health");
+                health_check_probe(&servers[i]);
+            }            
+        }
 
         // Choose next server to send request to
         next = 0;
