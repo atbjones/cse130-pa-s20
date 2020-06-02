@@ -140,11 +140,12 @@ void bridge_loop(int sockfd1, int sockfd2) {
  */
 void health_check_probe(struct serverObject * server){
     int connfd;
-    char buff[100];
+    memset(server->buff, 0, BUFFER_SIZE);
+    // char buff[100];
     // printf("here1\n");
     if ((connfd = client_connect(server->port)) < 0)
         err(1, "failed connecting");
-    int n = send(connfd, health_check_request, 100, 0);
+    int n = send(connfd, health_check_request, sizeof(health_check_request), 0);
     if (n < 0) {
         printf("connection error sending\n");
         server->errors = -1;
@@ -153,9 +154,9 @@ void health_check_probe(struct serverObject * server){
         printf("in healthcheckprobe... idk man.\n");
         return;
     }
-    n = recv(connfd, buff, 100, 0);
-    // printf("here2%s\n",buff);
-    char * ret = strstr(buff, "\r\n\r\n");
+    n = recv(connfd, server->buff, 100, 0);
+    printf("here2%s\n", server->buff);
+    char * ret = strstr(server->buff, "\r\n\r\n");
 
 // printf("here3\n");
     char * token = strtok(ret, whitespace);
@@ -168,7 +169,7 @@ void health_check_probe(struct serverObject * server){
             server->entries = atoi(token);
         }
     } else {
-        fprintf(stderr, "Weird error, no body recvd");
+        fprintf(stderr, "Weird error, no body recvd\n");
         server->errors = -1;
         server->entries = -1;
     }
@@ -260,16 +261,6 @@ int main(int argc,char **argv) {
         if ((acceptfd = accept(listenfd, NULL, NULL)) < 0)
             err(1, "failed accepting");
 
-        requests++;
-
-        // Perform routine healthcheck
-        if (requests % num_req == 0) {
-            for (int i = 0; i < num_servers; i++) {
-                printf("[+] checking health");
-                health_check_probe(&servers[i]);
-            }            
-        }
-
         // Choose next server to send request to
         next = 0;
         for (int i = 0; i < num_servers; i++){
@@ -288,6 +279,16 @@ int main(int argc,char **argv) {
         // Increment server requests count
         // TODO: CHECK IF ERROR OR ENTRY AND INCREMENT
         servers[next].entries += 1;
+        
+        requests++;
+
+        // Perform routine healthcheck
+        if (requests % num_req == 0 && requests != 0) {
+            for (int i = 0; i < num_servers; i++) {
+                printf("[+] checking health of %d\n", servers[i].port);
+                health_check_probe(&servers[i]);
+            }            
+        }
     }
 
     return EXIT_SUCCESS;
