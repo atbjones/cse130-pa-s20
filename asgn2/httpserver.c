@@ -244,11 +244,11 @@ void* handle_task(void* thread){
     while (true) {
         // printf("Thread [%d] is ready for a task\n", w_thread->id);
         // while we don't have a valid client socket id we wait
-        rc = pthread_mutex_lock(w_thread->lock);
-        if (rc) {
-            perror("pthread_mutex_lock\n");
-            pthread_exit(NULL);
-        }
+        // rc = pthread_mutex_lock(w_thread->lock);
+        // if (rc) {
+        //     perror("pthread_mutex_lock\n");
+        //     pthread_exit(NULL);
+        // }
         while (w_thread->client_sockd < 0) {
             // sleep
             pthread_cond_wait(&w_thread->condition_var, w_thread->lock);
@@ -277,11 +277,11 @@ void* handle_task(void* thread){
             w_thread->p_health->errors++;
         }
 
-        rc = pthread_mutex_unlock(w_thread->lock);
-        if (rc) {
-            perror("pthread_mutex_unlock\n");
-            pthread_exit(NULL);
-        }
+        // rc = pthread_mutex_unlock(w_thread->lock);
+        // if (rc) {
+        //     perror("pthread_mutex_unlock\n");
+        //     pthread_exit(NULL);
+        // }
 
         w_thread->avail = true;
     }

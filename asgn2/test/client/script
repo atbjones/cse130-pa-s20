@@ -2,26 +2,22 @@
 
 clear
 
-#echo "PUT tests"
-#time curl -T c1 http://localhost:8080/c1
+echo "PUT tests"
 
-#for file in {1..6}
-#do
-#   #echo "PUT $file"
-#   time curl -T c$file http://localhost:8080/c$file &
-#   #diff ../$file $file >d_$file
-#done
-#wait
+for file in {1..6}
+do
+   echo "PUT $file"
+   curl -T $file http://localhost:8080/$file &
+   #diff ../$file $file >d_$file
+done
+wait
 
-#for i in {1..10}
-#do
-#   for file in {1..6}
-#   do
-#      echo "GET c$file"
-#      curl http://localhost:8080/c$file --output c$file &
-#   done
-#done
-#wait
+for file in {1..6}
+do
+   echo "GET $file"
+   curl http://localhost:8080/c$file --output $file &
+done
+wait
 
 #for file in csmall cbig
 #do
@@ -37,17 +33,17 @@ clear
 #   curl -I http://localhost:8080/$file
 #done
 #
-echo "GET tests"
-for file in s_bad s_f@il s_dne s_big s_small
-do
-   echo "GET $file"
-   curl http://localhost:8080/$file --output $file
-   diff ../$file $file >d_$file
-done
+#echo "GET tests"
+#for file in s_bad s_f@il s_dne s_big s_small
+#do
+#   echo "GET $file"
+#   curl http://localhost:8080/$file --output $file
+#   diff ../$file $file >d_$file
+#done
 
-echo "health check"
-
-curl http://localhost:8080/healthcheck --output healthcheck
+#echo "health check"
+#
+#curl http://localhost:8080/healthcheck --output healthcheck
 #curl http://localhost:8080/healthcheck --output healthcheck
 #curl http://localhost:8080/healthcheck --output healthcheck
 #curl http://localhost:8080/healthcheck --output healthcheck

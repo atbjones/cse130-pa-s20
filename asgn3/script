@@ -5,38 +5,38 @@ clear
 echo "make testing files"
 for file in {1..6}
 do
-echo "foo bar bim" > $file
+echo "foo bar bim" > $file.t
 done
 
 echo "PUT small tests"
 for file in {1..1}
 do
-   echo "PUT $file"
-   curl -T $file http://localhost:1234/s$file
+   echo "PUT $file.t"
+   curl -T $file.t http://localhost:1234/s$file.t
 done
 wait
 
 echo "GET small tests"
 for file in {1..1}
 do
-   echo "GET $file"
-   curl http://localhost:1234/s$file --output s$file
+   echo "GET $file.t"
+   curl http://localhost:1234/s$file.t --output s$file.t
 done
 wait
 
 echo "PUT big tests"
 for file in {1..2}
 do
-   echo "PUT b$file"
-   curl -T b$file http://localhost:1234/sb$file
+   echo "PUT b$file.t"
+   curl -T b$file.t http://localhost:1234/sb$file.t
 done
 wait
 
 echo "GET big tests"
 for file in {1..2}
 do
-   echo "GET b$file"
-   curl http://localhost:1234/sb$file --output sb$file
+   echo "GET b$file.t"
+   curl http://localhost:1234/sb$file --output sb$file.t
 done
 wait
 
@@ -46,5 +46,5 @@ wait
 echo "remove testing files"
 for file in {1..6}
 do
-rm $file
+rm $file.t
 done
