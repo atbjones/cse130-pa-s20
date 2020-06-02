@@ -1,12 +1,4 @@
-#include<err.h>
-#include<arpa/inet.h>
-#include<netdb.h>
-#include<stdio.h>
-#include<stdlib.h>
-#include<string.h>
-#include<sys/socket.h>
-#include<sys/types.h>
-#include<unistd.h>
+#include "loadbalancer.h"
 
 /*
  * client_connect takes a port number and establishes a connection as a client.
@@ -137,6 +129,65 @@ void bridge_loop(int sockfd1, int sockfd2) {
     }
 }
 
+/*
+ * health_check_probe sends a healthcheck request to the specified server
+ * and updates the object. Will set both health fields to -1 if no response
+ */
+void health_check_probe(struct serverObject * server){
+    int connfd;
+    char buff[100];
+    // printf("here1\n");
+    if ((connfd = client_connect(server->port)) < 0)
+        err(1, "failed connecting");
+    int n = send(connfd, health_check_request, 100, 0);
+    if (n < 0) {
+        printf("connection error sending\n");
+        server->errors = -1;
+        server->entries = -1;
+    } else if (n == 0) {
+        printf("in healthcheckprobe... idk man.\n");
+        return;
+    }
+    n = recv(connfd, buff, 100, 0);
+    // printf("here2%s\n",buff);
+    char * ret = strstr(buff, "\r\n\r\n");
+
+// printf("here3\n");
+    char * token = strtok(ret, whitespace);
+    // printf("here3.5%s\n",token);
+    if (token != NULL) {
+        server->errors = atoi(token);
+
+        token = strtok(NULL, whitespace);
+        if (token != NULL) {
+            server->entries = atoi(token);
+        }
+    } else {
+        fprintf(stderr, "Weird error, no body recvd");
+        server->errors = -1;
+        server->entries = -1;
+    }
+
+// printf("here4\n");
+}
+
+/*
+ * chooseserver will select the next server to send a request to the
+ * server that has had the least requests sent to it or to the server
+ * with the least errors in case of a tie. In case of a double tie,
+ * it will choose the smaller serverid
+ */
+// int choose_server(struct serverObject servers[]){
+//     int min = 0;
+//     size_t n = sizeof(servers)/sizeof(servers[0]);
+//     for (size_t i = 0; i < n; i++){
+//         printf("serverid:%d\n", servers[i].id);
+//         if (servers[i].requests < servers[min].requests)
+//             min = i;
+//     }
+//     return min;
+// }
+
 int main(int argc,char **argv) {
     int connfd, listenfd, acceptfd;
     uint16_t connectport, listenport;
@@ -146,50 +197,83 @@ int main(int argc,char **argv) {
         return 1;
     }
 
+    // Option parsing
     int opt, num_paras = 4, num_req = 5;
     while ((opt = getopt(argc, argv, "N:R:")) != -1) {
         switch (opt) {
         case 'N':
-            num_paras = atoi(optarg);
-            if (num_paras <= 0){
-                fprintf(stderr, "Usage: %s [-RN] [port_to_connect] [port_to_listen]\n", argv[0]);
-                exit(EXIT_FAILURE);
+            if ((num_paras = atoi(optarg)) <= 0){
+                usage();
             }
             break;
         case 'R':
-            num_req = atoi(optarg);
-            if (num_req <= 0){
-                fprintf(stderr, "Usage: %s [-RN] [port_to_connect] [port_to_listen]\n", argv[0]);
-                exit(EXIT_FAILURE);
+            if ((num_req = atoi(optarg)) <= 0){
+                usage();
             }
             break;
         default:
-            fprintf(stderr, "Usage: %s [-RN] [port_to_connect] [port_to_listen]\n", argv[0]);
-            exit(EXIT_FAILURE);
+            usage();
         }
     }
 
-    // If no connectport or listenport specified
-    if (optind + 2 != argc) {
-        fprintf(stderr, "Usage: %s [-RN] [port_to_connect] [port_to_listen]\n", argv[0]);
-        exit(EXIT_FAILURE);
+    // If no server ports or listening ports specified
+    if (optind + 2 > argc) {
+        usage();
     }
-    connectport = atoi(argv[optind]);
-    listenport = atoi(argv[optind+1]);
 
+    // Set listening port to first port
+    listenport = atoi(argv[optind]);
+    if (listenport <=0) {
+        usage();
+    }
+
+    // Initialize server objects     
+    int num_servers = argc-optind-1;
+    struct serverObject servers[num_servers];
+    for (int i = 0; i < num_servers; i++){
+        servers[i].id = i;
+        servers[i].port = atoi(argv[optind+1+i]);
+        printf("prot:%d\n", servers[i].port);
+
+        // Send a health check probe to initialize server health
+        health_check_probe(&servers[i]);
+
+        // Connect
+        // if ((connfd = client_connect(servers[i].port)) < 0)
+        //     err(1, "failed connecting");
+    }
 
     // Remember to validate return values
     // You can fail tests for not validating
-    connectport = atoi(argv[1]);
-    listenport = atoi(argv[2]);
-    if ((connfd = client_connect(connectport)) < 0)
-        err(1, "failed connecting");
     if ((listenfd = server_listen(listenport)) < 0)
         err(1, "failed listening");
-    if ((acceptfd = accept(listenfd, NULL, NULL)) < 0)
-        err(1, "failed accepting");
 
-    // This is a sample on how to bridge connections.
-    // Modify as needed.
-    bridge_loop(acceptfd, connfd);
+    int next = 0;
+    while (true) {
+
+        printf("[+] load balancer waiting...\n");
+        if ((acceptfd = accept(listenfd, NULL, NULL)) < 0)
+            err(1, "failed accepting");
+
+        // Choose next server to send request to
+        next = 0;
+        for (int i = 0; i < num_servers; i++){
+            if (servers[i].entries < servers[next].entries && servers[i].entries != -1)
+                next = i;
+        }
+        printf("[+] next:%d\n", next);
+
+        if ((connfd = client_connect(servers[next].port)) < 0)
+            err(1, "failed connecting");
+
+        // This is a sample on how to bridge connections.
+        // Modify as needed.
+        bridge_loop(acceptfd, connfd);
+
+        // Increment server requests count
+        // TODO: CHECK IF ERROR OR ENTRY AND INCREMENT
+        servers[next].entries += 1;
+    }
+
+    return EXIT_SUCCESS;
 }

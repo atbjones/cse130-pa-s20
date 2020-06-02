@@ -4,8 +4,8 @@ TARGET = loadbalancer
 
 all: $(TARGET)
 
-$(TARGET): $(TARGET).c
+$(TARGET): $(TARGET).c $(TARGET).h
 	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c
 
 clean:
-	$(RM) $(TARGET) log
+	$(RM) $(TARGET) log* healthcheck
