@@ -59,7 +59,7 @@ int server_listen(int port) {
  * returns: number of bytes sent, 0 if connection closed, -1 on error
  */
 int bridge_connections(int fromfd, int tofd) {
-    char buff[BUFFER_SIZE];
+    uint8_t buff[BUFFER_SIZE];
     int n = BUFFER_SIZE;
     while (n == BUFFER_SIZE)  {
         // printf("recv\n");
@@ -140,8 +140,8 @@ void bridge_loop(int sockfd1, int sockfd2) {
  */
 void health_check_probe(struct serverObject * server){
     int connfd;
-    memset(server->buff, 0, BUFFER_SIZE);
-    // char buff[100];
+    // memset(server->buff, 0, BUFFER_SIZE);
+    char buff[100];
     // printf("here1\n");
     if ((connfd = client_connect(server->port)) < 0)
         err(1, "failed connecting");
@@ -154,9 +154,9 @@ void health_check_probe(struct serverObject * server){
         printf("in healthcheckprobe... idk man.\n");
         return;
     }
-    n = recv(connfd, server->buff, 100, 0);
-    printf("here2%s\n", server->buff);
-    char * ret = strstr(server->buff, "\r\n\r\n");
+    n = recv(connfd, buff, 100, 0);
+    printf("here2%s\n", buff);
+    char * ret = strstr(buff, "\r\n\r\n");
 
 // printf("here3\n");
     char * token = strtok(ret, whitespace);
