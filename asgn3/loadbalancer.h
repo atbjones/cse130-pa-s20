@@ -24,7 +24,8 @@ struct serverObject {
     // int fd;
     int entries;
     int errors;
-    uint8_t buff[BUFFER_SIZE];
+    bool alive;
+    // uint8_t buff[BUFFER_SIZE];
 };
 
 void usage() {

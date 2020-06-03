@@ -72,7 +72,7 @@ int bridge_connections(int fromfd, int tofd) {
             return 0;
         }
         buff[n] = '\0';
-        printf("[+]Buffer\n****************************\n%s\n****************************\n", buff);
+        // printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
         // printf("send\n");
         n = send(tofd, buff, n, 0);
         if (n < 0) {
@@ -143,19 +143,21 @@ void health_check_probe(struct serverObject * server){
     // memset(server->buff, 0, BUFFER_SIZE);
     char buff[100];
     // printf("here1\n");
-    if ((connfd = client_connect(server->port)) < 0)
-        err(1, "failed connecting");
+    if ((connfd = client_connect(server->port)) < 0){
+        printf("[+] server %d did not respond to a health_check\n", server->port);
+        server->alive = false;
+        return;
+    }
     int n = send(connfd, health_check_request, sizeof(health_check_request), 0);
     if (n < 0) {
         printf("connection error sending\n");
-        server->errors = -1;
-        server->entries = -1;
+        server->alive = false;
     } else if (n == 0) {
         printf("in healthcheckprobe... idk man.\n");
         return;
     }
     n = recv(connfd, buff, 100, 0);
-    printf("here2%s\n", buff);
+    // printf("here2%s\n", buff);
     char * ret = strstr(buff, "\r\n\r\n");
 
 // printf("here3\n");
@@ -170,11 +172,10 @@ void health_check_probe(struct serverObject * server){
         }
     } else {
         fprintf(stderr, "Weird error, no body recvd\n");
-        server->errors = -1;
-        server->entries = -1;
+        server->alive = false;
     }
 
-// printf("here4\n");
+    server->alive = true;
 }
 
 /*
@@ -183,17 +184,17 @@ void health_check_probe(struct serverObject * server){
  * with the least errors in case of a tie. In case of a double tie,
  * it will choose the smaller serverid
  */
-// int choose_server(struct serverObject servers[]){
-//     int min = 0;
-//     size_t n = sizeof(servers)/sizeof(servers[0]);
-//     for (size_t i = 0; i < n; i++){
-//         printf("serverid:%d\n", servers[i].id);
-//         if (servers[i].requests < servers[min].requests)
-//             min = i;
-//     }
-//     return min;
-// }
+int choose_server(struct serverObject servers[], int num_servers){
+    int min = 0;
+    for (int i = 0; i < num_servers; i++){
+        // printf("serverid:%d\n", servers[i].id);
+        if (servers[i].entries < servers[min].entries && servers[i].alive)
+            min = i;
+    }
+    return min;
+}
 
+// ============================================================================
 int main(int argc,char **argv) {
     int connfd, listenfd, acceptfd;
     uint16_t connectport, listenport;
@@ -262,15 +263,17 @@ int main(int argc,char **argv) {
             err(1, "failed accepting");
 
         // Choose next server to send request to
-        next = 0;
-        for (int i = 0; i < num_servers; i++){
-            if (servers[i].entries < servers[next].entries && servers[i].entries != -1)
-                next = i;
-        }
-        printf("[+] next:%d\n", next);
+        next = choose_server(servers, num_servers);
+        printf("[+] next:%d\n", servers[next].port);
 
-        if ((connfd = client_connect(servers[next].port)) < 0)
-            err(1, "failed connecting");
+        // Attempt to connect to given server
+        // If failed to connect, choose next server until it works
+        while ((connfd = client_connect(servers[next].port)) < 0){
+            printf("[+] failed to connect to %d\n", servers[next].port);
+            servers[next].alive = false;
+            next = choose_server(servers, num_servers);
+            printf("[+] attempting %d\n", servers[next].port);
+        }
 
         // This is a sample on how to bridge connections.
         // Modify as needed.
