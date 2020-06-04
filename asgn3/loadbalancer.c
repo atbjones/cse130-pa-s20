@@ -238,7 +238,7 @@ int main(int argc,char **argv) {
     }
 
     // Option parsing
-    int opt, num_paras = 4, num_req = 5;
+    int opt, num_paras = 4, R = 5;
     while ((opt = getopt(argc, argv, "N:R:")) != -1) {
         switch (opt) {
         case 'N':
@@ -247,7 +247,7 @@ int main(int argc,char **argv) {
             }
             break;
         case 'R':
-            if ((num_req = atoi(optarg)) <= 0){
+            if ((R = atoi(optarg)) <= 0){
                 usage();
             }
             break;
@@ -341,7 +341,7 @@ int main(int argc,char **argv) {
         num_requests++;
 
         // Perform routine healthcheck
-        if (num_requests % num_req == 0 && num_requests != 0) {
+        if (num_requests % R == 0 && num_requests != 0) {
             // if (p_health_pkg->auto_health == false){
                 for (int i = 0; i < num_servers; i++) {
                     printf("[+] checking health of %d\n", servers[i].port);
