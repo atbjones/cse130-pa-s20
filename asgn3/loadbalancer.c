@@ -164,8 +164,13 @@ void health_check_probe(struct serverObject * server){
         return;
     }
 
-    // Get response and parse, set servers accordingly
+    // Get response and put in buff
     n = recv(connfd, buff, 100, 0);
+    while (n != 0) {
+        n = recv(connfd, buff + n, 100, 0);
+    }
+    printf("n = %d\n", n);
+
     char * ret = strstr(buff, "\r\n\r\n");
 
     char * token = strtok(ret, whitespace);
