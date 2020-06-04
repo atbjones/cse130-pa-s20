@@ -54,27 +54,30 @@ int server_listen(int port) {
 }
 
 /*
- * bridge_connections send up to 100 bytes from fromfd to tofd
+ * bridge_connections send up to 4096 bytes at a time from fromfd to tofd
  * fromfd, tofd: valid sockets
  * returns: number of bytes sent, 0 if connection closed, -1 on error
  */
 int bridge_connections(int fromfd, int tofd) {
+    // printf("in b_c\n");
     uint8_t buff[BUFFER_SIZE];
     int n = BUFFER_SIZE;
     while (n == BUFFER_SIZE)  {
-        // printf("recv\n");
         n = recv(fromfd, buff, BUFFER_SIZE, 0);
+        // printf("recv:%d\n", n);
         if (n < 0) {
             printf("connection error receiving\n");
             return -1;
         } else if (n == 0) {
             printf("receiving connection ended\n");
+            // send_500(tofd);
             return 0;
         }
         buff[n] = '\0';
         // printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
-        // printf("send\n");
+        // sleep(10);
         n = send(tofd, buff, n, 0);
+        // printf("send:%d\n", n);
         if (n < 0) {
             printf("connection error sending\n");
             return -1;
@@ -82,7 +85,7 @@ int bridge_connections(int fromfd, int tofd) {
             printf("sending connection ended\n");
             return 0;
         }
-        // printf("done\n");
+        // printf("done:%d\n", n);
     }
     return n;
 }
@@ -134,13 +137,17 @@ void bridge_loop(int sockfd1, int sockfd2) {
     }
 }
 
+void* handle_task(void* pair){
+    struct pair* P = (struct pair*)pair;
+    bridge_loop(P->fd1, P->fd2);
+}
+
 /*
  * health_check_probe sends a healthcheck request to the specified server
  * and updates the object. Will set both health fields to -1 if no response
  */
 void health_check_probe(struct serverObject * server){
     int connfd;
-    // memset(server->buff, 0, BUFFER_SIZE);
     char buff[100];
     // printf("here1\n");
     if ((connfd = client_connect(server->port)) < 0){
@@ -156,11 +163,11 @@ void health_check_probe(struct serverObject * server){
         printf("in healthcheckprobe... idk man.\n");
         return;
     }
+
+    // Get response and parse, set servers accordingly
     n = recv(connfd, buff, 100, 0);
-    // printf("here2%s\n", buff);
     char * ret = strstr(buff, "\r\n\r\n");
 
-// printf("here3\n");
     char * token = strtok(ret, whitespace);
     // printf("here3.5%s\n",token);
     if (token != NULL) {
@@ -176,6 +183,32 @@ void health_check_probe(struct serverObject * server){
     }
 
     server->alive = true;
+}
+
+/*
+ * healthcheck_loop will send a healthcheck to each server 
+ * every 5 seconds indefeinitly
+ */
+void * health_check_loop(void * ptr) {
+    // struct serverObject servers[2];
+    struct health_thread_Object* p_health = (struct health_thread_Object*)ptr;
+    struct serverObject* p_servers = (struct serverObject*)p_health->p_servers;
+    int* p_num_reqs = p_health->p_num_reqs;
+    int num_servers = p_health->num_servers;
+    int prev = 0;
+    // printf("ptr:%p\n", p_servers);
+    while(true) {
+        sleep(5);
+        if (*p_num_reqs - prev >= 5){
+            prev = *p_num_reqs;
+            continue;
+        }
+        for (int i = 0; i < num_servers; i++) {
+            printf("[+] checking health of %d\n", (p_servers+i)->port);
+            health_check_probe(p_servers+i);
+        }
+        prev = *p_num_reqs;
+    }
 }
 
 /*
@@ -196,8 +229,8 @@ int choose_server(struct serverObject servers[], int num_servers){
 
 // ============================================================================
 int main(int argc,char **argv) {
-    int connfd, listenfd, acceptfd;
-    uint16_t connectport, listenport;
+    int serverfd, listenfd, clientfd;
+    uint16_t listenport;
 
     if (argc < 3) {
         printf("missing arguments: usage %s port_to_connect port_to_listen", argv[0]);
@@ -234,13 +267,14 @@ int main(int argc,char **argv) {
         usage();
     }
 
+    int num_requests = 0;
+
     // Initialize server objects     
     int num_servers = argc-optind-1;
     struct serverObject servers[num_servers];
     for (int i = 0; i < num_servers; i++){
         servers[i].id = i;
         servers[i].port = atoi(argv[optind+1+i]);
-        printf("prot:%d\n", servers[i].port);
 
         // Send a health check probe to initialize server health
         health_check_probe(&servers[i]);
@@ -250,16 +284,33 @@ int main(int argc,char **argv) {
         //     err(1, "failed connecting");
     }
 
-    // Remember to validate return values
-    // You can fail tests for not validating
+
+    struct health_thread_Object* p_health_pkg = malloc(sizeof(struct health_thread_Object));
+    p_health_pkg->num_servers = num_servers;
+    p_health_pkg->p_servers = servers;
+    p_health_pkg->p_num_reqs = &num_requests;
+    // p_health_pkg->auto_health = false;
+
+    // Create healthcheck thread
+    pthread_t health_thread;
+    pthread_create(&health_thread, NULL, health_check_loop, p_health_pkg);
+
+    // Create N threads
+    pthread_t thread_id;
+    struct pair pair;
+    struct pair * p_pair = &pair;
+    // p_pair = malloc(sizeof(struct pair));
+
+
+    // Set loadbalancer to listen for incoming requests
     if ((listenfd = server_listen(listenport)) < 0)
         err(1, "failed listening");
 
-    int requests = 0, next = 0;
+    int next = 0;
     while (true) {
 
         printf("[+] load balancer waiting...\n");
-        if ((acceptfd = accept(listenfd, NULL, NULL)) < 0)
+        if ((clientfd = accept(listenfd, NULL, NULL)) < 0)
             err(1, "failed accepting");
 
         // Choose next server to send request to
@@ -268,29 +319,35 @@ int main(int argc,char **argv) {
 
         // Attempt to connect to given server
         // If failed to connect, choose next server until it works
-        while ((connfd = client_connect(servers[next].port)) < 0){
+        while ((serverfd = client_connect(servers[next].port)) < 0){
             printf("[+] failed to connect to %d\n", servers[next].port);
             servers[next].alive = false;
             next = choose_server(servers, num_servers);
             printf("[+] attempting %d\n", servers[next].port);
         }
 
-        // This is a sample on how to bridge connections.
-        // Modify as needed.
-        bridge_loop(acceptfd, connfd);
+        // Give struct pointer the clientfd and server fd
+        p_pair->fd1 = clientfd;
+        p_pair->fd2 = serverfd;
+
+        // bridge_loop(acceptfd, connfd);
+        pthread_create(&thread_id, NULL, handle_task, p_pair);
+        pthread_join(thread_id, NULL);
 
         // Increment server requests count
         // TODO: CHECK IF ERROR OR ENTRY AND INCREMENT
         servers[next].entries += 1;
         
-        requests++;
+        num_requests++;
 
         // Perform routine healthcheck
-        if (requests % num_req == 0 && requests != 0) {
-            for (int i = 0; i < num_servers; i++) {
-                printf("[+] checking health of %d\n", servers[i].port);
-                health_check_probe(&servers[i]);
-            }            
+        if (num_requests % num_req == 0 && num_requests != 0) {
+            // if (p_health_pkg->auto_health == false){
+                for (int i = 0; i < num_servers; i++) {
+                    printf("[+] checking health of %d\n", servers[i].port);
+                    health_check_probe(&servers[i]);
+                }
+            // }
         }
     }
 

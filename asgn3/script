@@ -24,21 +24,21 @@ do
 done
 wait
 
-#echo "PUT big tests"
-#for file in {1..2}
-#do
-#   echo "PUT b$file"
-#   curl -T b$file http://localhost:1234/sb$file
-#done
-#wait
-#
-#echo "GET big tests"
-#for file in {1..2}
-#do
-#   echo "GET sb$file"
-#   curl http://localhost:1234/sb$file --output sb$file
-#done
-#wait
+echo "PUT big tests"
+for file in {1..2}
+do
+   echo "PUT b$file"
+   curl -T b$file http://localhost:1234/sb$file
+done
+wait
+
+echo "GET big tests"
+for file in {1..2}
+do
+   echo "GET sb$file"
+   curl http://localhost:1234/sb$file --output sb$file
+done
+wait
 #
 #echo "PUT binary"
 #curl -T WRITEUP.pdf http://localhost:1234/WRITEUP
