@@ -159,16 +159,27 @@ void health_check_probe(struct serverObject * server){
     if (n < 0) {
         printf("connection error sending\n");
         server->alive = false;
+        return;
     } else if (n == 0) {
         printf("in healthcheckprobe... idk man.\n");
         return;
     }
 
     // Get response and put in buff
+    int bytes_recvd = 0;
     n = recv(connfd, buff, 100, 0);
+    bytes_recvd = n;
     while (n != 0) {
         n = recv(connfd, buff + n, 100, 0);
+        bytes_recvd += n;
     }
+    buff[bytes_recvd] = '\0';
+    // printf("[+] buff:\n%s\n",buff);
+    // char * ret1 = strstr(buff, "Content-Length: ");
+    // char * token1 = strtok(ret1, whitespace);
+    // token1 = strtok(NULL, whitespace);
+    // printf("token:%s\n", token1);
+    // cont_len = atoi(token1);
 
     char * ret = strstr(buff, "\r\n\r\n");
 
@@ -178,13 +189,15 @@ void health_check_probe(struct serverObject * server){
         server->errors = atoi(token);
 
         token = strtok(NULL, whitespace);
+        // printf("here3.5.5%s\n",token);
         if (token != NULL) {
             server->entries = atoi(token);
         }
     } else {
-        fprintf(stderr, "Weird error, no body recvd\n");
+        fprintf(stderr, "No body recvd. This should not ever happen if server returns correct healthcheck\n");
         server->alive = false;
     }
+    // printf("server %d: entries:%d errors:%d\n", server->port, server->entries, server->errors);
 
     server->alive = true;
 }
@@ -208,7 +221,7 @@ void * health_check_loop(void * ptr) {
             continue;
         }
         for (int i = 0; i < num_servers; i++) {
-            printf("[+] checking health of %d\n", (p_servers+i)->port);
+            // printf("[+] checking health of %d\n", (p_servers+i)->port);
             health_check_probe(p_servers+i);
         }
         prev = *p_num_reqs;
@@ -317,7 +330,7 @@ int main(int argc,char **argv) {
     int next = 0;
     while (true) {
 
-        printf("[+] load balancer waiting...\n");
+        // printf("[+] load balancer waiting...\n");
         if ((clientfd = accept(listenfd, NULL, NULL)) < 0)
             err(1, "failed accepting");
 
@@ -331,7 +344,7 @@ int main(int argc,char **argv) {
             printf("[+] failed to connect to %d\n", servers[next].port);
             servers[next].alive = false;
             next = choose_server(servers, num_servers);
-            printf("[+] attempting %d\n", servers[next].port);
+            // printf("[+] attempting %d\n", servers[next].port);
         }
 
         // Give struct pointer the clientfd and server fd
@@ -349,14 +362,15 @@ int main(int argc,char **argv) {
         num_requests++;
 
         // Perform routine healthcheck
-        if (num_requests % R == 0 && num_requests != 0) {
-            // if (p_health_pkg->auto_health == false){
-                for (int i = 0; i < num_servers; i++) {
-                    printf("[+] checking health of %d\n", servers[i].port);
-                    health_check_probe(&servers[i]);
-                }
-            // }
-        }
+        // if (num_requests % R == 0 && num_requests != 0) {
+        //     // if (p_health_pkg->auto_health == false){
+        //         for (int i = 0; i < num_servers; i++) {
+        //             // printf("[+] checking health of %d\n", servers[i].port);
+        //             health_check_probe(&servers[i]);
+        //             // printf("server %d: entries:%d errors:%d\n", servers[i].port, servers[i].entries, servers[i].errors);
+        //         }
+        //     // }
+        // }
     }
 
     return EXIT_SUCCESS;
