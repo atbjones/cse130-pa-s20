@@ -64,7 +64,7 @@ int bridge_connections(int fromfd, int tofd) {
     int n = BUFFER_SIZE;
     while (n == BUFFER_SIZE)  {
         n = recv(fromfd, buff, BUFFER_SIZE, 0);
-        // printf("recv:%d\n", n);
+        printf("recv:%d\n", n);
         if (n < 0) {
             printf("connection error receiving\n");
             return -1;
@@ -74,10 +74,10 @@ int bridge_connections(int fromfd, int tofd) {
             return 0;
         }
         buff[n] = '\0';
-        // printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
+        printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
         // sleep(10);
         n = send(tofd, buff, n, 0);
-        // printf("send:%d\n", n);
+        printf("send:%d\n", n);
         if (n < 0) {
             printf("connection error sending\n");
             return -1;
@@ -85,7 +85,7 @@ int bridge_connections(int fromfd, int tofd) {
             printf("sending connection ended\n");
             return 0;
         }
-        // printf("done:%d\n", n);
+        printf("done:%d\n", n);
     }
     return n;
 }
@@ -245,7 +245,12 @@ int choose_server(struct serverObject servers[], int num_servers){
             min = i;
         }
     }
-    return min;
+    // If min is not alive, all servers are dead.
+    if (servers[min].alive){
+        return min;
+    } else {
+        return -1;
+    }
 }
 
 // ============================================================================
@@ -336,6 +341,11 @@ int main(int argc,char **argv) {
 
         // Choose next server to send request to
         next = choose_server(servers, num_servers);
+        if (next == -1) {
+            printf("[+] all servers are dead\n");
+            send_500(clientfd);
+            continue;
+        }
         printf("[+] next:%d\n", servers[next].port);
 
         // Attempt to connect to given server
