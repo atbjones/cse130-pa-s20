@@ -169,7 +169,6 @@ void health_check_probe(struct serverObject * server){
     while (n != 0) {
         n = recv(connfd, buff + n, 100, 0);
     }
-    printf("n = %d\n", n);
 
     char * ret = strstr(buff, "\r\n\r\n");
 
@@ -226,8 +225,12 @@ int choose_server(struct serverObject servers[], int num_servers){
     int min = 0;
     for (int i = 0; i < num_servers; i++){
         // printf("serverid:%d\n", servers[i].id);
-        if (servers[i].entries < servers[min].entries && servers[i].alive)
+        if (servers[i].entries < servers[min].entries && servers[i].alive){
             min = i;
+        } else if (servers[i].entries == servers[min].entries) {
+            if (servers[i].errors < servers[min].errors)
+            min = i;
+        }
     }
     return min;
 }
