@@ -177,31 +177,22 @@ void health_check_probe(struct serverObject * server){
     buff[bytes_recvd] = '\0';
     // printf("[+]Buffer\n******************   **********\n%s\n****************************\n\n", buff);
 
-    char * ret = strtok(buff, whitespace);
-    ret = strtok(NULL, whitespace);
-    int status = atoi(ret);
-    if (status != 200) {
-        fprintf(stderr, "Server returned bad status code\n");
+    char status_msg[20];
+    int status_code;
+    int length;
+    int errors = -1;
+    int entries = -1;
+    sscanf(buff, "HTTP/1.1 %d %s\r\nContent-Length: %d\r\n\r\n%d\n%d", &status_code, status_msg, &length, &errors, &entries);
+    if (status_code != 200 || errors == -1 || entries == -1) {
+        fprintf(stderr, "[+] Server returned bad healthcheck\n");
         server->alive = false;
     }
+    // printf("SC:%d\nSM:%s\nlen:%d\nER:%d\nEN:%d\n", status_cod, status_msg, length, errors, entries);
 
-    ret = strstr(buff, "\r\n\r\n");
+    server->errors = errors;
+    server->entries = entries;
 
-    char * token = strtok(ret, whitespace);
-    // printf("here3.5%s\n",token);
-    if (token != NULL) {
-        server->errors = atoi(token);
-
-        token = strtok(NULL, whitespace);
-        // printf("here3.5.5%s\n",token);
-        if (token != NULL) {
-            server->entries = atoi(token);
-        }
-    } else {
-        fprintf(stderr, "Server returned bad response\n");
-        server->alive = false;
-    }
-    // printf("server %d: entries:%d errors:%d\n", server->port, server->entries, server->errors);
+    printf("server %d: entries:%d errors:%d\n", server->port, server->entries, server->errors);
 
     server->alive = true;
 }
