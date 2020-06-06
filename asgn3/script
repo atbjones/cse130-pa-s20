@@ -39,7 +39,7 @@ do
    curl http://localhost:1234/sb$file --output sb$file
 done
 wait
-#
+
 #echo "PUT binary"
 #curl -T WRITEUP.pdf http://localhost:1234/WRITEUP
 #

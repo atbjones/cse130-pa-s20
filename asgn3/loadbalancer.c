@@ -59,10 +59,9 @@ int server_listen(int port) {
  * returns: number of bytes sent, 0 if connection closed, -1 on error
  */
 int bridge_connections(int fromfd, int tofd) {
-    // printf("in b_c\n");
     uint8_t buff[BUFFER_SIZE];
-    int n = BUFFER_SIZE;
-    while (n == BUFFER_SIZE)  {
+    int n;
+    // while (n == BUFFER_SIZE)  {
         n = recv(fromfd, buff, BUFFER_SIZE, 0);
         // printf("recv:%d\n", n);
         if (n < 0) {
@@ -74,7 +73,7 @@ int bridge_connections(int fromfd, int tofd) {
             return 0;
         }
         buff[n] = '\0';
-        // printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
+        // printf("[+]Buffer\n******************   **********\n%s\n****************************\n\n", buff);
         n = send(tofd, buff, n, 0);
         // printf("send:%d\n", n);
         if (n < 0) {
@@ -85,7 +84,7 @@ int bridge_connections(int fromfd, int tofd) {
             return 0;
         }
         // printf("done:%d\n", n);
-    }
+    // }
     return n;
 }
 
@@ -100,6 +99,7 @@ void bridge_loop(int sockfd1, int sockfd2) {
 
     int fromfd, tofd;
     while(1) {
+        
         // set for select usage must be initialized before each select call
         // set manages which file descriptors are being watched
         FD_ZERO (&set);
@@ -117,13 +117,16 @@ void bridge_loop(int sockfd1, int sockfd2) {
                 printf("error during select, exiting\n");
                 return;
             case 0:
+                send_500(fromfd);
                 printf("both channels are idle, waiting again\n");
                 continue;
             default:
                 if (FD_ISSET(sockfd1, &set)) {
+                    // printf("here1\n");
                     fromfd = sockfd1;
                     tofd = sockfd2;
                 } else if (FD_ISSET(sockfd2, &set)) {
+                    // printf("here2\n");
                     fromfd = sockfd2;
                     tofd = sockfd1;
                 } else {
@@ -148,9 +151,8 @@ void* handle_task(void* pair){
 void health_check_probe(struct serverObject * server){
     int connfd;
     char buff[100];
-    // printf("here1\n");
     if ((connfd = client_connect(server->port)) < 0){
-        // printf("[+] server %d did not respond to a health_check\n", server->port);
+        printf("[+] server %d did not respond to a health_check\n", server->port);
         server->alive = false;
         return;
     }
@@ -173,8 +175,17 @@ void health_check_probe(struct serverObject * server){
         bytes_recvd += n;
     }
     buff[bytes_recvd] = '\0';
-    // printf("[+] buff:\n%s\n",buff);
-    char * ret = strstr(buff, "\r\n\r\n");
+    // printf("[+]Buffer\n******************   **********\n%s\n****************************\n\n", buff);
+
+    char * ret = strtok(buff, whitespace);
+    ret = strtok(NULL, whitespace);
+    int status = atoi(ret);
+    if (status != 200) {
+        fprintf(stderr, "Server returned bad status code\n");
+        server->alive = false;
+    }
+
+    ret = strstr(buff, "\r\n\r\n");
 
     char * token = strtok(ret, whitespace);
     // printf("here3.5%s\n",token);
