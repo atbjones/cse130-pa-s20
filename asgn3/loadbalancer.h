@@ -22,18 +22,16 @@ const char* whitespace = " \r\t\n\v\f";
 struct serverObject {
     int id;
     int port;
-    // int fd;
     int entries;
     int errors;
     bool alive;
-    // uint8_t buff[BUFFER_SIZE];
 };
 
 struct health_thread_Object {
     struct serverObject* p_servers;
     int* p_num_reqs;
     int num_servers;
-    // bool* auto_health;
+    int R;
 };
 
 struct pair {

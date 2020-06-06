@@ -61,30 +61,28 @@ int server_listen(int port) {
 int bridge_connections(int fromfd, int tofd) {
     uint8_t buff[BUFFER_SIZE];
     int n;
-    // while (n == BUFFER_SIZE)  {
-        n = recv(fromfd, buff, BUFFER_SIZE, 0);
-        // printf("recv:%d\n", n);
-        if (n < 0) {
-            printf("connection error receiving\n");
-            return -1;
-        } else if (n == 0) {
-            printf("receiving connection ended\n");
-            // send_500(tofd);
-            return 0;
-        }
-        buff[n] = '\0';
-        // printf("[+]Buffer\n******************   **********\n%s\n****************************\n\n", buff);
-        n = send(tofd, buff, n, 0);
-        // printf("send:%d\n", n);
-        if (n < 0) {
-            printf("connection error sending\n");
-            return -1;
-        } else if (n == 0) {
-            printf("sending connection ended\n");
-            return 0;
-        }
-        // printf("done:%d\n", n);
-    // }
+    n = recv(fromfd, buff, BUFFER_SIZE, 0);
+    // printf("recv:%d\n", n);
+    if (n < 0) {
+        printf("connection error receiving\n");
+        return -1;
+    } else if (n == 0) {
+        printf("receiving connection ended\n");
+        // send_500(tofd);
+        return 0;
+    }
+    buff[n] = '\0';
+    // printf("[+]Buffer\n******************   **********\n%s\n****************************\n\n", buff);
+    n = send(tofd, buff, n, 0);
+    // printf("send:%d\n", n);
+    if (n < 0) {
+        printf("connection error sending\n");
+        return -1;
+    } else if (n == 0) {
+        printf("sending connection ended\n");
+        return 0;
+    }
+    // printf("done:%d\n", n);
     return n;
 }
 
@@ -207,11 +205,12 @@ void * health_check_loop(void * ptr) {
     struct serverObject* p_servers = (struct serverObject*)p_health->p_servers;
     int* p_num_reqs = p_health->p_num_reqs;
     int num_servers = p_health->num_servers;
+    int R = p_health->R;
     int prev = 0;
     // printf("ptr:%p\n", p_servers);
     while(true) {
         sleep(3);
-        if (*p_num_reqs - prev >= 5){
+        if (*p_num_reqs - prev >= R){
             prev = *p_num_reqs;
             continue;
         }
@@ -277,6 +276,11 @@ int main(int argc,char **argv) {
         }
     }
 
+    // If R is less than 1 error
+    if (R < 1) {
+        usage();
+    }
+
     // If no server ports or listening ports specified
     if (optind + 2 > argc) {
         usage();
@@ -299,10 +303,6 @@ int main(int argc,char **argv) {
 
         // Send a health check probe to initialize server health
         health_check_probe(&servers[i]);
-
-        // Connect
-        // if ((connfd = client_connect(servers[i].port)) < 0)
-        //     err(1, "failed connecting");
     }
 
 
@@ -310,7 +310,7 @@ int main(int argc,char **argv) {
     p_health_pkg->num_servers = num_servers;
     p_health_pkg->p_servers = servers;
     p_health_pkg->p_num_reqs = &num_requests;
-    // p_health_pkg->auto_health = false;
+    p_health_pkg->R = R;
 
     // Create healthcheck thread
     pthread_t health_thread;
@@ -320,8 +320,6 @@ int main(int argc,char **argv) {
     pthread_t thread_id;
     struct pair pair;
     struct pair * p_pair = &pair;
-    // p_pair = malloc(sizeof(struct pair));
-
 
     // Set loadbalancer to listen for incoming requests
     if ((listenfd = server_listen(listenport)) < 0)
@@ -349,7 +347,6 @@ int main(int argc,char **argv) {
             printf("[+] failed to connect to %d\n", servers[next].port);
             servers[next].alive = false;
             next = choose_server(servers, num_servers);
-            // printf("[+] attempting %d\n", servers[next].port);
         }
 
         // Give struct pointer the clientfd and server fd
@@ -367,15 +364,12 @@ int main(int argc,char **argv) {
         num_requests++;
 
         // Perform routine healthcheck
-        // if (num_requests % R == 0 && num_requests != 0) {
-        //     // if (p_health_pkg->auto_health == false){
-        //         for (int i = 0; i < num_servers; i++) {
-        //             // printf("[+] checking health of %d\n", servers[i].port);
-        //             health_check_probe(&servers[i]);
-        //             // printf("server %d: entries:%d errors:%d\n", servers[i].port, servers[i].entries, servers[i].errors);
-        //         }
-        //     // }
-        // }
+        if (num_requests % R == 0 && num_requests != 0) {
+            for (int i = 0; i < num_servers; i++) {
+                // printf("[+] checking health of %d\n", servers[i].port);
+                health_check_probe(&servers[i]);
+            }
+        }
     }
 
     return EXIT_SUCCESS;
