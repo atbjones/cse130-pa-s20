@@ -69,7 +69,7 @@ int bridge_connections(int fromfd, int tofd) {
             return -1;
         } else if (n == 0) {
             printf("receiving connection ended\n");
-            send_500(tofd);
+            // send_500(tofd);
             return 0;
         }
         buff[n] = '\0';
