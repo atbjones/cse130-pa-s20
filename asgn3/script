@@ -8,21 +8,21 @@ do
 echo "foo bar bim" > $file
 done
 
-echo "PUT small tests"
-for file in {1..1}
-do
-   echo "PUT $file"
-   curl -T $file http://localhost:1234/s$file
-done
-wait
-
-echo "GET small tests"
-for file in {1..1}
-do
-   echo "GET $file"
-   curl http://localhost:1234/s$file --output s$file
-done
-wait
+#echo "PUT small tests"
+#for file in {1..6}
+#do
+#   echo "PUT $file"
+#   curl -T $file http://localhost:1234/s$file
+#done
+#wait
+#
+#echo "GET small tests"
+#for file in {1..6}
+#do
+#   echo "GET $file"
+#   curl http://localhost:1234/s$file --output s$file
+#done
+#wait
 
 echo "PUT big tests"
 for file in {1..2}

@@ -64,20 +64,19 @@ int bridge_connections(int fromfd, int tofd) {
     int n = BUFFER_SIZE;
     while (n == BUFFER_SIZE)  {
         n = recv(fromfd, buff, BUFFER_SIZE, 0);
-        printf("recv:%d\n", n);
+        // printf("recv:%d\n", n);
         if (n < 0) {
             printf("connection error receiving\n");
             return -1;
         } else if (n == 0) {
             printf("receiving connection ended\n");
-            // send_500(tofd);
+            send_500(tofd);
             return 0;
         }
         buff[n] = '\0';
-        printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
-        // sleep(10);
+        // printf("[+]Buffer\n****************************\n%s\n****************************\n\n", buff);
         n = send(tofd, buff, n, 0);
-        printf("send:%d\n", n);
+        // printf("send:%d\n", n);
         if (n < 0) {
             printf("connection error sending\n");
             return -1;
@@ -85,7 +84,7 @@ int bridge_connections(int fromfd, int tofd) {
             printf("sending connection ended\n");
             return 0;
         }
-        printf("done:%d\n", n);
+        // printf("done:%d\n", n);
     }
     return n;
 }
@@ -151,13 +150,13 @@ void health_check_probe(struct serverObject * server){
     char buff[100];
     // printf("here1\n");
     if ((connfd = client_connect(server->port)) < 0){
-        printf("[+] server %d did not respond to a health_check\n", server->port);
+        // printf("[+] server %d did not respond to a health_check\n", server->port);
         server->alive = false;
         return;
     }
     int n = send(connfd, health_check_request, sizeof(health_check_request), 0);
     if (n < 0) {
-        printf("connection error sending\n");
+        fprintf(stderr, "connection error sending\n");
         server->alive = false;
         return;
     } else if (n == 0) {
@@ -175,12 +174,6 @@ void health_check_probe(struct serverObject * server){
     }
     buff[bytes_recvd] = '\0';
     // printf("[+] buff:\n%s\n",buff);
-    // char * ret1 = strstr(buff, "Content-Length: ");
-    // char * token1 = strtok(ret1, whitespace);
-    // token1 = strtok(NULL, whitespace);
-    // printf("token:%s\n", token1);
-    // cont_len = atoi(token1);
-
     char * ret = strstr(buff, "\r\n\r\n");
 
     char * token = strtok(ret, whitespace);
@@ -194,7 +187,7 @@ void health_check_probe(struct serverObject * server){
             server->entries = atoi(token);
         }
     } else {
-        fprintf(stderr, "No body recvd. This should not ever happen if server returns correct healthcheck\n");
+        fprintf(stderr, "Server returned bad response\n");
         server->alive = false;
     }
     // printf("server %d: entries:%d errors:%d\n", server->port, server->entries, server->errors);
@@ -215,7 +208,7 @@ void * health_check_loop(void * ptr) {
     int prev = 0;
     // printf("ptr:%p\n", p_servers);
     while(true) {
-        sleep(5);
+        sleep(3);
         if (*p_num_reqs - prev >= 5){
             prev = *p_num_reqs;
             continue;
